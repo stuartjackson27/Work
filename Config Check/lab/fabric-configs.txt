@@ -1,0 +1,286 @@
+EVPN-VXLAN FABRIC: 2 SPINES + 2 LEAVES (lab EVPN_VXLAN_QFX)
+==========================================================
+Design: eBGP IPv4 underlay + eBGP EVPN overlay, unique ASN per device,
+bridged only (no IRB). One VXLAN VNI: VLAN 100 / VNI 10100.
+The old QinQ / SIPT service is removed: the leaf-to-leaf ge-0/0/3 link is
+gone from the EVE lab, and the cleanup block below deletes its config.
+The fabric uses ge-0/0/0 and ge-0/0/1 on every switch; VPCs are on leaf ge-0/0/2.
+
+ADDRESSING
+----------
+Device   Mgmt (fxp0)       Loopback (lo0.0)   ASN
+SPINE1   192.168.1.54/24   10.255.0.1/32      65001
+SPINE2   192.168.1.55/24   10.255.0.2/32      65002
+QFX1     192.168.1.52/24   10.255.0.11/32     65011   (Leaf_1)
+QFX2     192.168.1.53/24   10.255.0.12/32     65012   (Leaf_2)
+
+Fabric links (/31, MTU 9192)
+Same port number at both ends of every link:
+SPINE1 ge-0/0/0 10.0.1.0/31  <->  QFX1 ge-0/0/0 10.0.1.1/31
+SPINE1 ge-0/0/1 10.0.1.2/31  <->  QFX2 ge-0/0/1 10.0.1.3/31
+SPINE2 ge-0/0/0 10.0.2.2/31  <->  QFX2 ge-0/0/0 10.0.2.3/31
+SPINE2 ge-0/0/1 10.0.2.0/31  <->  QFX1 ge-0/0/1 10.0.2.1/31
+
+Hosts on VLAN 100 (VNI 10100)
+VPC1 on QFX1 ge-0/0/2   ip 10.100.0.1/24
+VPC2 on QFX2 ge-0/0/2   ip 10.100.0.2/24
+
+ORDER OF WORK
+-------------
+1. In EVE: start Spine_1, wait until it boots (about 5-8 min), then Spine_2.
+   Start them one at a time. Leaf_1 and Leaf_2 must be (re)started after the
+   lab change so that their new fabric links come up.
+2. On each spine's console, log in as root (no password on first boot), then:
+       cli
+       configure
+       set system root-authentication plain-text-password   (prompts twice)
+   then paste the spine block below and type: commit and-quit
+3. On each leaf: configure, paste the QinQ cleanup block, then the leaf's
+   fabric block, then: commit and-quit  (one commit for both).
+4. Run the checks at the bottom.
+
+
+############################################################################
+### SPINE1 (Spine_1)
+############################################################################
+set system host-name SPINE1
+set system services ssh root-login deny
+set system services ssh protocol-version v2
+set system services netconf ssh
+set system login class cc-ro permissions view
+set system login class cc-ro permissions view-configuration
+set system login class cc-ro deny-commands "(request|clear|restart|start|file|configure)"
+set system login user configcheck class cc-ro
+set system login user configcheck authentication ssh-ed25519 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDJDeudzYLqGY+XYbBiHEReRg3tXuNWETjZA8nbqb73 configcheck@config-check"
+set interfaces fxp0 unit 0 family inet address 192.168.1.54/24
+set interfaces lo0 unit 0 family inet address 10.255.0.1/32
+set interfaces ge-0/0/0 description "to QFX1 ge-0/0/0"
+set interfaces ge-0/0/0 mtu 9192
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.1.0/31
+set interfaces ge-0/0/1 description "to QFX2 ge-0/0/1"
+set interfaces ge-0/0/1 mtu 9192
+set interfaces ge-0/0/1 unit 0 family inet address 10.0.1.2/31
+set routing-options router-id 10.255.0.1
+set routing-options autonomous-system 65001
+set routing-options forwarding-table export ECMP
+set policy-options policy-statement ECMP then load-balance per-packet
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 from interface lo0.0
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 then accept
+set protocols bgp group UNDERLAY type external
+set protocols bgp group UNDERLAY export UNDERLAY-EXPORT
+set protocols bgp group UNDERLAY multipath multiple-as
+set protocols bgp group UNDERLAY bfd-liveness-detection minimum-interval 1000
+set protocols bgp group UNDERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group UNDERLAY neighbor 10.0.1.1 description QFX1
+set protocols bgp group UNDERLAY neighbor 10.0.1.1 peer-as 65011
+set protocols bgp group UNDERLAY neighbor 10.0.1.3 description QFX2
+set protocols bgp group UNDERLAY neighbor 10.0.1.3 peer-as 65012
+set protocols bgp group OVERLAY type external
+set protocols bgp group OVERLAY multihop no-nexthop-change
+set protocols bgp group OVERLAY local-address 10.255.0.1
+set protocols bgp group OVERLAY family evpn signaling
+set protocols bgp group OVERLAY keep all
+set protocols bgp group OVERLAY multipath multiple-as
+set protocols bgp group OVERLAY bfd-liveness-detection minimum-interval 3000
+set protocols bgp group OVERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group OVERLAY neighbor 10.255.0.11 description QFX1
+set protocols bgp group OVERLAY neighbor 10.255.0.11 peer-as 65011
+set protocols bgp group OVERLAY neighbor 10.255.0.12 description QFX2
+set protocols bgp group OVERLAY neighbor 10.255.0.12 peer-as 65012
+set protocols lldp interface all
+
+
+############################################################################
+### SPINE2 (Spine_2)
+############################################################################
+set system host-name SPINE2
+set system services ssh root-login deny
+set system services ssh protocol-version v2
+set system services netconf ssh
+set system login class cc-ro permissions view
+set system login class cc-ro permissions view-configuration
+set system login class cc-ro deny-commands "(request|clear|restart|start|file|configure)"
+set system login user configcheck class cc-ro
+set system login user configcheck authentication ssh-ed25519 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDJDeudzYLqGY+XYbBiHEReRg3tXuNWETjZA8nbqb73 configcheck@config-check"
+set interfaces fxp0 unit 0 family inet address 192.168.1.55/24
+set interfaces lo0 unit 0 family inet address 10.255.0.2/32
+set interfaces ge-0/0/0 description "to QFX2 ge-0/0/0"
+set interfaces ge-0/0/0 mtu 9192
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.2.2/31
+set interfaces ge-0/0/1 description "to QFX1 ge-0/0/1"
+set interfaces ge-0/0/1 mtu 9192
+set interfaces ge-0/0/1 unit 0 family inet address 10.0.2.0/31
+set routing-options router-id 10.255.0.2
+set routing-options autonomous-system 65002
+set routing-options forwarding-table export ECMP
+set policy-options policy-statement ECMP then load-balance per-packet
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 from interface lo0.0
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 then accept
+set protocols bgp group UNDERLAY type external
+set protocols bgp group UNDERLAY export UNDERLAY-EXPORT
+set protocols bgp group UNDERLAY multipath multiple-as
+set protocols bgp group UNDERLAY bfd-liveness-detection minimum-interval 1000
+set protocols bgp group UNDERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group UNDERLAY neighbor 10.0.2.1 description QFX1
+set protocols bgp group UNDERLAY neighbor 10.0.2.1 peer-as 65011
+set protocols bgp group UNDERLAY neighbor 10.0.2.3 description QFX2
+set protocols bgp group UNDERLAY neighbor 10.0.2.3 peer-as 65012
+set protocols bgp group OVERLAY type external
+set protocols bgp group OVERLAY multihop no-nexthop-change
+set protocols bgp group OVERLAY local-address 10.255.0.2
+set protocols bgp group OVERLAY family evpn signaling
+set protocols bgp group OVERLAY keep all
+set protocols bgp group OVERLAY multipath multiple-as
+set protocols bgp group OVERLAY bfd-liveness-detection minimum-interval 3000
+set protocols bgp group OVERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group OVERLAY neighbor 10.255.0.11 description QFX1
+set protocols bgp group OVERLAY neighbor 10.255.0.11 peer-as 65011
+set protocols bgp group OVERLAY neighbor 10.255.0.12 description QFX2
+set protocols bgp group OVERLAY neighbor 10.255.0.12 peer-as 65012
+set protocols lldp interface all
+
+
+############################################################################
+### QFX1 + QFX2: REMOVE THE OLD QINQ / SIPT CONFIG FIRST (paste on both)
+############################################################################
+delete interfaces ge-0/0/3
+delete interfaces irb
+delete routing-instances SIPT-QINQ
+delete routing-instances SIPT-QINQ-2
+delete vlans QINQ-107-101
+delete vlans QINQ-117-111
+# Leftovers from the same lab (optional, but Config Check flags them):
+delete multi-chassis
+delete system arp aging-timer
+delete protocols router-advertisement
+# "statement not found" on any line is harmless (e.g. router-advertisement on QFX2).
+# Then paste the leaf's fabric block below and commit once.
+
+
+############################################################################
+### QFX1 (Leaf_1): adds to the existing config
+############################################################################
+set interfaces lo0 unit 0 family inet address 10.255.0.11/32
+set interfaces ge-0/0/0 description "to SPINE1 ge-0/0/0"
+set interfaces ge-0/0/0 mtu 9192
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.1.1/31
+set interfaces ge-0/0/1 description "to SPINE2 ge-0/0/1"
+set interfaces ge-0/0/1 mtu 9192
+set interfaces ge-0/0/1 unit 0 family inet address 10.0.2.1/31
+set interfaces ge-0/0/2 description "VPC1 - VLAN 100"
+set interfaces ge-0/0/2 unit 0 family ethernet-switching interface-mode access
+set interfaces ge-0/0/2 unit 0 family ethernet-switching vlan members V100
+set routing-options router-id 10.255.0.11
+set routing-options autonomous-system 65011
+set routing-options forwarding-table export ECMP
+set policy-options policy-statement ECMP then load-balance per-packet
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 from interface lo0.0
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 then accept
+set protocols bgp group UNDERLAY type external
+set protocols bgp group UNDERLAY export UNDERLAY-EXPORT
+set protocols bgp group UNDERLAY multipath multiple-as
+set protocols bgp group UNDERLAY bfd-liveness-detection minimum-interval 1000
+set protocols bgp group UNDERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group UNDERLAY neighbor 10.0.1.0 description SPINE1
+set protocols bgp group UNDERLAY neighbor 10.0.1.0 peer-as 65001
+set protocols bgp group UNDERLAY neighbor 10.0.2.0 description SPINE2
+set protocols bgp group UNDERLAY neighbor 10.0.2.0 peer-as 65002
+set protocols bgp group OVERLAY type external
+set protocols bgp group OVERLAY multihop no-nexthop-change
+set protocols bgp group OVERLAY local-address 10.255.0.11
+set protocols bgp group OVERLAY family evpn signaling
+set protocols bgp group OVERLAY multipath multiple-as
+set protocols bgp group OVERLAY bfd-liveness-detection minimum-interval 3000
+set protocols bgp group OVERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group OVERLAY neighbor 10.255.0.1 description SPINE1
+set protocols bgp group OVERLAY neighbor 10.255.0.1 peer-as 65001
+set protocols bgp group OVERLAY neighbor 10.255.0.2 description SPINE2
+set protocols bgp group OVERLAY neighbor 10.255.0.2 peer-as 65002
+set protocols evpn encapsulation vxlan
+set protocols evpn extended-vni-list all
+set switch-options vtep-source-interface lo0.0
+set switch-options route-distinguisher 10.255.0.11:1
+set switch-options vrf-target target:65000:1
+set vlans V100 vlan-id 100
+set vlans V100 vxlan vni 10100
+
+
+############################################################################
+### QFX2 (Leaf_2): adds to the existing config
+############################################################################
+set interfaces lo0 unit 0 family inet address 10.255.0.12/32
+set interfaces ge-0/0/0 description "to SPINE2 ge-0/0/0"
+set interfaces ge-0/0/0 mtu 9192
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.2.3/31
+set interfaces ge-0/0/1 description "to SPINE1 ge-0/0/1"
+set interfaces ge-0/0/1 mtu 9192
+set interfaces ge-0/0/1 unit 0 family inet address 10.0.1.3/31
+set interfaces ge-0/0/2 description "VPC2 - VLAN 100"
+set interfaces ge-0/0/2 unit 0 family ethernet-switching interface-mode access
+set interfaces ge-0/0/2 unit 0 family ethernet-switching vlan members V100
+set routing-options router-id 10.255.0.12
+set routing-options autonomous-system 65012
+set routing-options forwarding-table export ECMP
+set policy-options policy-statement ECMP then load-balance per-packet
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 from interface lo0.0
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 then accept
+set protocols bgp group UNDERLAY type external
+set protocols bgp group UNDERLAY export UNDERLAY-EXPORT
+set protocols bgp group UNDERLAY multipath multiple-as
+set protocols bgp group UNDERLAY bfd-liveness-detection minimum-interval 1000
+set protocols bgp group UNDERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group UNDERLAY neighbor 10.0.1.2 description SPINE1
+set protocols bgp group UNDERLAY neighbor 10.0.1.2 peer-as 65001
+set protocols bgp group UNDERLAY neighbor 10.0.2.2 description SPINE2
+set protocols bgp group UNDERLAY neighbor 10.0.2.2 peer-as 65002
+set protocols bgp group OVERLAY type external
+set protocols bgp group OVERLAY multihop no-nexthop-change
+set protocols bgp group OVERLAY local-address 10.255.0.12
+set protocols bgp group OVERLAY family evpn signaling
+set protocols bgp group OVERLAY multipath multiple-as
+set protocols bgp group OVERLAY bfd-liveness-detection minimum-interval 3000
+set protocols bgp group OVERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group OVERLAY neighbor 10.255.0.1 description SPINE1
+set protocols bgp group OVERLAY neighbor 10.255.0.1 peer-as 65001
+set protocols bgp group OVERLAY neighbor 10.255.0.2 description SPINE2
+set protocols bgp group OVERLAY neighbor 10.255.0.2 peer-as 65002
+set protocols evpn encapsulation vxlan
+set protocols evpn extended-vni-list all
+set switch-options vtep-source-interface lo0.0
+set switch-options route-distinguisher 10.255.0.12:1
+set switch-options vrf-target target:65000:1
+set vlans V100 vlan-id 100
+set vlans V100 vxlan vni 10100
+
+
+############################################################################
+### ALL FOUR SWITCHES: base standards (optional, clears the Base findings)
+############################################################################
+set system services ssh root-login deny
+set system time-zone UTC
+set system ntp server 10.250.0.1
+set system ntp server 10.250.0.2
+set system syslog host 10.250.0.20 any notice
+set system syslog file messages any notice
+set system syslog file interactive-commands interactive-commands any
+set system login message "Authorised access only. Activity is logged."
+# The NTP and syslog addresses are the design-standard ones and are not in the
+# lab, so NTP stays unsynchronised. That's fine for Config Check; it checks config.
+
+
+############################################################################
+### VPCS hosts (EVE console)
+############################################################################
+VPC1>  ip 10.100.0.1/24
+VPC2>  ip 10.100.0.2/24
+VPC1>  ping 10.100.0.2
+
+
+############################################################################
+### CHECKS (on any leaf)
+############################################################################
+show bgp summary                          (UNDERLAY + OVERLAY all Establ)
+show route 10.255.0.0/24                  (all 4 loopbacks, 2 paths each)
+show evpn database                        (VPC MACs from both leaves)
+show ethernet-switching vxlan-tunnel-end-point remote   (other leaf's VTEP)
+show ethernet-switching table vlan-name V100

@@ -1,0 +1,13 @@
+# Security checks for Layer 2 host access ports (leaf roles, Security tab).
+# Reference: knowledge/security/SEC-baseline-junos.md §10
+# Syntax: see knowledge/README.md
+
+# @id SEC-L2-STORM @sev 3 @title "Host access port without storm control" @doc "SEC-baseline-junos §10"
+# @practice "Apply storm control to every host access port."
+# @scope ^set interfaces (?P<ifd>(?:ge|xe|et|mge)-[\d/]+) unit 0 family ethernet-switching interface-mode access
+set interfaces {{ifd}} unit 0 family ethernet-switching storm-control {{*}}
+
+# @id SEC-L2-BPDU @sev 3 @title "Host access port does not block BPDUs" @doc "SEC-baseline-junos §10"
+# @practice "Block BPDUs on host access ports so a host cannot inject spanning-tree frames."
+# @scope ^set interfaces (?P<ifd>(?:ge|xe|et|mge)-[\d/]+) unit 0 family ethernet-switching interface-mode access
+set protocols layer2-control bpdu-block interface {{ifd}}

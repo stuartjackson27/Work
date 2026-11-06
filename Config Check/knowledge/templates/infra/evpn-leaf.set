@@ -1,0 +1,16 @@
+# Leaf-only template (role evpn-leaf).
+# Syntax: see knowledge/README.md
+
+# @id LEAF-EVPN @sev 4 @title "EVPN-VXLAN not enabled to standard" @doc "HLD-evpn-fabric §7.1"
+set protocols evpn encapsulation vxlan
+set protocols evpn extended-vni-list all
+
+# @id LEAF-VTEP @sev 4 @title "VTEP source or route distinguisher not to standard" @doc "HLD-evpn-fabric §7.1"
+set switch-options vtep-source-interface lo0.0
+set switch-options route-distinguisher {{lo0}}:1
+
+# @id LEAF-RT @sev 5 @title "Route target differs from the fabric standard" @doc "HLD-evpn-fabric §7.1"
+set switch-options vrf-target {{vrf_target}}
+
+# @id LEAF-NO-KEEP-ALL @sev 2 @title "keep all set on a leaf" @doc "HLD-evpn-fabric §7.1"
+!set protocols bgp group OVERLAY keep all

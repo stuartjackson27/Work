@@ -1,0 +1,30 @@
+# SIP trunk virtual-router service template (SIPT-*).
+# Syntax: see knowledge/README.md
+# Every block below repeats once per SIPT routing instance.
+
+# @id SVC-SIPT-TYPE @sev 4 @title "SIPT instance is not a virtual-router" @doc "HLD-qinq-edge §4.1"
+# @scope ^set routing-instances (?P<vr>SIPT\S*)\s
+set routing-instances {{vr}} instance-type virtual-router
+
+# @id SVC-BGP-AUTH @sev 4 @title "eBGP session to aggregation has no authentication" @doc "HLD-qinq-edge §4.2"
+# @scope ^set routing-instances (?P<vr>SIPT\S*) protocols bgp group CISCO-ASR\s
+set routing-instances {{vr}} protocols bgp group CISCO-ASR authentication-key {{*}}
+
+# @id SVC-BGP-POLICY @sev 4 @title "eBGP group has no import/export policy" @doc "HLD-qinq-edge §4.2"
+# @scope ^set routing-instances (?P<vr>SIPT\S*) protocols bgp group CISCO-ASR\s
+set routing-instances {{vr}} protocols bgp group CISCO-ASR import SIPT-IN
+set routing-instances {{vr}} protocols bgp group CISCO-ASR export SIPT-OUT
+
+# @id SVC-BGP-BFD @sev 3 @title "BFD not configured on eBGP group" @doc "HLD-qinq-edge §4.2"
+# @scope ^set routing-instances (?P<vr>SIPT\S*) protocols bgp group CISCO-ASR\s
+set routing-instances {{vr}} protocols bgp group CISCO-ASR bfd-liveness-detection minimum-interval 300
+set routing-instances {{vr}} protocols bgp group CISCO-ASR bfd-liveness-detection multiplier 3
+
+# @id SVC-BGP-PFXLIMIT @sev 3 @title "No prefix limit on customer eBGP group" @doc "HLD-qinq-edge §4.2"
+# @scope ^set routing-instances (?P<vr>SIPT\S*) protocols bgp group CISCO-ASR\s
+set routing-instances {{vr}} protocols bgp group CISCO-ASR family inet unicast prefix-limit maximum 100
+set routing-instances {{vr}} protocols bgp group CISCO-ASR family inet unicast prefix-limit teardown
+
+# @id SVC-BGP-LOG @sev 1 @title "log-updown not set on eBGP group" @doc "HLD-qinq-edge §4.2"
+# @scope ^set routing-instances (?P<vr>SIPT\S*) protocols bgp group CISCO-ASR\s
+set routing-instances {{vr}} protocols bgp group CISCO-ASR log-updown

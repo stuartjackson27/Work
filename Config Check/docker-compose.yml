@@ -1,0 +1,41 @@
+# Config Check stack: Junos MCP server (read-only device access) + backend/dashboard.
+# Reconstructed 6 Nov 2026 after the Proxmox host failure. Layout matches the
+# original VM (/opt/config-check). See README.md for first-time setup.
+services:
+  junos-mcp:
+    container_name: cc-junos-mcp
+    build: ./mcp/junos-mcp-server          # git clone https://github.com/Juniper/junos-mcp-server mcp/junos-mcp-server
+    image: config-check/junos-mcp:local
+    command: >
+      python jmcp.py -f /app/config/devices.json -t streamable-http -H 0.0.0.0 -p 30030
+      --tokens-file /secrets/jmcp-tokens.json
+    volumes:
+      - ./config/devices.json:/app/config/devices.json:ro
+      - ./secrets:/secrets:ro
+      - ./mcp/policy/block.cfg:/app/block.cfg:ro
+      - ./mcp/policy/block.cmd:/app/block.cmd:ro
+    ports:
+      - "127.0.0.1:30030:30030"           # localhost only; the backend reaches it on the compose network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket;socket.create_connection(('127.0.0.1',30030),2)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    container_name: cc-backend
+    build: .
+    image: config-check/backend:local
+    user: "1000:1000"
+    depends_on:
+      junos-mcp:
+        condition: service_healthy
+    volumes:
+      - ./config:/opt/config-check/config:ro
+      - ./knowledge:/opt/config-check/knowledge:ro
+      - ./data:/opt/config-check/data
+      - ./secrets/jmcp-backend.token:/secrets/jmcp-backend.token:ro
+    ports:
+      - "8080:8080"                        # production: bind 127.0.0.1 and put HTTPS + SSO in front (docs/SECURITY-HARDENING.md)
+    restart: unless-stopped

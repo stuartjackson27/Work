@@ -1,0 +1,62 @@
+# Config Check inventory: single source of truth.
+# devices.json for the Junos MCP server is generated from this file
+# (scripts/gen_devices.py). Edit here, then rerun the generator.
+#
+# Fabric: EVPN-VXLAN, 2 spines + 2 leaves (knowledge/design/HLD-evpn-fabric.md).
+# Per-device vars lo0 and asn are the addressing plan. Templates check the
+# device against them, and the fabric_peers check uses them to work out which
+# BGP sessions every device should have.
+#
+# Templates under security/ produce Security-tab findings (category Security); the
+# role's `security` docs are the baseline the LLM security review is checked against.
+
+defaults:
+  username: configcheck
+  port: 830
+  key_file: /secrets/configcheck_ed25519
+  vars:                      # fill {{placeholders}} in templates
+    ntp1: 10.250.0.1
+    ntp2: 10.250.0.2
+    syslog_host: 10.250.0.20
+
+_fabric_drift: &fabric_drift   # lines expected to differ between devices in a role
+  - '^set system host-name '
+  - '^set interfaces fxp0 '
+  - '^set interfaces \S+ description '
+  - ' family inet address '
+  - ' (local-as|peer-as) \d+'
+  - ' neighbor \S+'
+  - '^set routing-options (router-id|autonomous-system) '
+  - ' local-address \S+$'
+  - '^set switch-options route-distinguisher '
+  - 'authentication-key|encrypted-password|ssh-(ed25519|rsa)'
+  - '^set system login user \S+ uid '
+
+roles:
+  evpn-spine:
+    description: EVPN-VXLAN spine (eBGP underlay transit, EVPN route reflection with keep all)
+    design: [design/HLD-evpn-fabric.md]
+    security: [security/SEC-baseline-junos.md]      # baseline for the Security tab (LLM review)
+    templates: [base, infra/fabric-underlay, infra/fabric-overlay, infra/evpn-spine, security/common]
+    vars:
+      peer_role: evpn-leaf
+    drift_ignore: *fabric_drift
+    devices:
+      spine1: { host: 192.168.1.54, model: vJunos-switch, lab: EVPN_VXLAN_QFX, vars: { lo0: 10.255.0.1, asn: 65001 } }
+      spine2: { host: 192.168.1.55, model: vJunos-switch, lab: EVPN_VXLAN_QFX, vars: { lo0: 10.255.0.2, asn: 65002 } }
+
+  evpn-leaf:
+    description: EVPN-VXLAN leaf / VTEP (bridged Layer 2 VNIs, host access ports)
+    design: [design/HLD-evpn-fabric.md]
+    security: [security/SEC-baseline-junos.md]
+    templates: [base, infra/fabric-underlay, infra/fabric-overlay, infra/evpn-leaf, services/l2-vni,
+                security/common, security/l2-edge]
+    vars:
+      peer_role: evpn-spine
+      vrf_target: target:65000:1
+      vni_base: 10000
+      vlan_prefix: V
+    drift_ignore: *fabric_drift
+    devices:
+      qfx1: { host: 192.168.1.52, model: vJunos-switch, lab: EVPN_VXLAN_QFX, vars: { lo0: 10.255.0.11, asn: 65011 } }
+      qfx2: { host: 192.168.1.53, model: vJunos-switch, lab: EVPN_VXLAN_QFX, vars: { lo0: 10.255.0.12, asn: 65012 } }

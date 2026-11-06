@@ -1,0 +1,111 @@
+# Security baseline checks for every Junos device (Security tab).
+# Reference: knowledge/security/SEC-baseline-junos.md
+# Syntax: see knowledge/README.md. @practice is the best-practice text shown on the dashboard.
+
+# @id SEC-CLEARTEXT @sev 5 @title "Clear-text management service enabled" @doc "SEC-baseline-junos §2.2"
+# @practice "Never enable telnet, ftp, finger, rlogin, web-management http or xnm-clear-text. All management is over SSH/HTTPS."
+!set system services telnet{{*}}
+!set system services ftp{{*}}
+!set system services finger{{*}}
+!set system services rlogin{{*}}
+!set system services web-management http{{*}}
+!set system services xnm-clear-text{{*}}
+
+# @id SEC-SSH-ROOT @sev 4 @title "Root login over SSH is allowed" @doc "SEC-baseline-junos §2.1"
+# @practice "Deny root login over SSH. Operators use named accounts; root is console-only."
+set system services ssh root-login deny
+
+# @id SEC-SSH-V2 @sev 4 @title "SSH not restricted to protocol v2" @doc "SEC-baseline-junos §2.1"
+# @practice "SSH protocol version 2 only."
+set system services ssh protocol-version v2
+
+# @id SEC-SSH-LIMITS @sev 3 @title "No SSH connection or rate limit" @doc "SEC-baseline-junos §2.1"
+# @practice "Set SSH connection-limit and rate-limit to slow brute force and protect the routing engine (suggested: connection-limit 10, rate-limit 5 per minute)."
+set system services ssh connection-limit {{*}}
+set system services ssh rate-limit {{*}}
+
+# @id SEC-SSH-CIPHERS @sev 2 @title "SSH algorithms not restricted to strong ciphers" @doc "SEC-baseline-junos §2.1"
+# @practice "Restrict SSH to strong algorithms, e.g. ciphers [ aes256-gcm@openssh.com chacha20-poly1305@openssh.com aes256-ctr ], macs [ hmac-sha2-512 hmac-sha2-256 ], key-exchange [ curve25519-sha256 ecdh-sha2-nistp384 ]."
+set system services ssh ciphers {{*}}
+set system services ssh macs {{*}}
+set system services ssh key-exchange {{*}}
+
+# @id SEC-LOGIN-RETRY @sev 3 @title "No login retry or lockout limits" @doc "SEC-baseline-junos §2.3"
+# @practice "Disconnect after a few failed logins and lock out for a period (suggested: tries-before-disconnect 3, lockout-period 5 minutes)."
+set system login retry-options tries-before-disconnect {{*}}
+set system login retry-options lockout-period {{*}}
+
+# @id SEC-PASSWORD-LEN @sev 2 @title "No minimum password length enforced" @doc "SEC-baseline-junos §2.3"
+# @practice "Enforce a minimum password length of at least 12 characters."
+set system login password minimum-length {{*}}
+
+# @id SEC-BANNER @sev 1 @title "Legal login banner missing" @doc "SEC-baseline-junos §2.3"
+# @practice "Display a legal login banner on every device."
+set system login message {{*}}
+
+# @id SEC-CONSOLE @sev 2 @title "Console session not logged out on disconnect" @doc "SEC-baseline-junos §2.3"
+# @practice "Log the console session out when the cable is disconnected so the next person does not inherit it."
+set system ports console log-out-on-disconnect
+
+# @id SEC-AAA @sev 3 @title "No central AAA (TACACS+/RADIUS)" @doc "SEC-baseline-junos §2.4"
+# @practice "Authenticate operators against central TACACS+ or RADIUS with local fallback only (e.g. authentication-order [ tacplus password ])."
+set system authentication-order {{*}}
+
+# @id SEC-ROOT-AUTH @sev 3 @title "No root password for console recovery" @doc "SEC-baseline-junos §2.4"
+# @practice "Set a root password for console recovery."
+set system root-authentication {{*}}
+
+# @id SEC-RO-CLASS @sev 4 @title "Read-only login class has elevated permissions" @doc "SEC-baseline-junos §2.4"
+# @practice "Automation classes keep the minimum permissions; read-only classes never include all, secret, maintenance, shell or configure."
+!set system login class {{*}} permissions all
+!set system login class {{*}} permissions secret
+!set system login class {{*}} permissions shell
+
+# @id SEC-LO0-FILTER @sev 4 @title "No loopback protection filter (routing engine unprotected)" @doc "SEC-baseline-junos §3.1"
+# @practice "Apply an input filter on lo0 unit 0 family inet (e.g. PROTECT-RE) that permits only required protocols from known sources (BGP peers, BFD, SSH/NETCONF from management prefixes, NTP, rate-limited ICMP) and ends with a term that discards and counts everything else."
+set interfaces lo0 unit 0 family inet filter input {{*}}
+
+# @id SEC-REDIRECTS @sev 2 @title "ICMP redirects not disabled" @doc "SEC-baseline-junos §3.2"
+# @practice "Disable ICMP redirects."
+set system no-redirects
+
+# @id SEC-ICMP-RATE @sev 2 @title "ICMP to the routing engine not rate limited" @doc "SEC-baseline-junos §3.2"
+# @practice "Rate limit ICMP to the routing engine (suggested: icmpv4-rate-limit packet-rate 1000)."
+set system internet-options icmpv4-rate-limit {{*}}
+
+# @id SEC-PING-OPTS @sev 1 @title "Ping record-route / timestamp answered" @doc "SEC-baseline-junos §3.2"
+# @practice "Do not answer ping record-route or timestamp options."
+set system no-ping-record-route
+set system no-ping-time-stamp
+
+# @id SEC-DDOS @sev 4 @title "Host-bound DDoS protection disabled" @doc "SEC-baseline-junos §3.2"
+# @practice "Leave host-bound DDoS protection enabled."
+!set system ddos-protection global disable-routing-engine{{*}}
+!set system ddos-protection global disable-fpc{{*}}
+
+# @id SEC-BGP-AUTH @sev 3 @title "BGP sessions without authentication" @doc "SEC-baseline-junos §4.1"
+# @practice "Authenticate every BGP session with an authentication key or key chain."
+# @builtin bgp_auth
+
+# @id SEC-SNMP-COMMUNITY @sev 4 @title "SNMPv1/v2c community configured" @doc "SEC-baseline-junos §5"
+# @practice "Use SNMPv3 authPriv only. No v1/v2c communities."
+!set snmp community {{*}}
+
+# @id SEC-NTP @sev 3 @title "Fewer than two NTP servers" @doc "SEC-baseline-junos §6"
+# @practice "Configure at least two NTP servers."
+set system ntp server {{ntp1}}
+set system ntp server {{ntp2}}
+
+# @id SEC-NTP-AUTH @sev 2 @title "NTP not authenticated" @doc "SEC-baseline-junos §6"
+# @practice "Use NTP authentication keys (sha256) and trusted-key, and reference the key on each server, so time cannot be spoofed."
+set system ntp authentication-key {{*}}
+set system ntp trusted-key {{*}}
+
+# @id SEC-SYSLOG-REMOTE @sev 3 @title "No remote syslog host" @doc "SEC-baseline-junos §7"
+# @practice "Send logs to at least one, preferably two, remote syslog hosts."
+set system syslog host {{*}}
+
+# @id SEC-SYSLOG-AUDIT @sev 2 @title "Audit logging incomplete (commands / authorisation)" @doc "SEC-baseline-junos §7"
+# @practice "Log interactive commands and authorisation events."
+set system syslog file interactive-commands interactive-commands any
+set system syslog file messages authorization info

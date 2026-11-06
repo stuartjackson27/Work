@@ -1,0 +1,46 @@
+# Underlay template: spines and leaves.
+# {{lo0}} and {{asn}} come from the device entry in config/inventory.yaml.
+# Syntax: see knowledge/README.md
+
+# @id FAB-LO0 @sev 3 @title "Loopback, router-id or ASN differs from the addressing plan" @doc "HLD-evpn-fabric §4.1"
+set interfaces lo0 unit 0 family inet address {{lo0}}/32
+set routing-options router-id {{lo0}}
+set routing-options autonomous-system {{asn}}
+
+# @id FAB-LINK @sev 4 @title "Fabric link missing jumbo MTU or description" @doc "HLD-evpn-fabric §4.2"
+# @scope ^set interfaces (?P<ifd>(?:ge|xe|et)-[\d/]+) unit 0 family inet address
+set interfaces {{ifd}} mtu 9192
+set interfaces {{ifd}} description {{*}}
+
+# @id FAB-ECMP @sev 3 @title "ECMP load-balancing not applied to the forwarding table" @doc "HLD-evpn-fabric §4.3"
+set policy-options policy-statement ECMP then load-balance per-packet
+set routing-options forwarding-table export ECMP
+
+# @id FAB-UL-EXPORT @sev 4 @title "Underlay does not advertise the loopback" @doc "HLD-evpn-fabric §4.3"
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 from interface lo0.0
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 then accept
+set protocols bgp group UNDERLAY export UNDERLAY-EXPORT
+
+# @id FAB-UL-GROUP @sev 3 @title "Underlay BGP group not to standard (type, multipath, BFD)" @doc "HLD-evpn-fabric §4.3"
+set protocols bgp group UNDERLAY type external
+set protocols bgp group UNDERLAY multipath multiple-as
+set protocols bgp group UNDERLAY bfd-liveness-detection minimum-interval 1000
+set protocols bgp group UNDERLAY bfd-liveness-detection multiplier 3
+
+# @id FAB-UL-NBR @sev 2 @title "Underlay neighbor missing description" @doc "HLD-evpn-fabric §4.3"
+# @scope ^set protocols bgp group UNDERLAY neighbor (?P<nbr>\S+) peer-as
+set protocols bgp group UNDERLAY neighbor {{nbr}} description {{*}}
+
+# @id FAB-LLDP @sev 2 @title "LLDP not enabled on all interfaces" @doc "HLD-evpn-fabric §4.4"
+set protocols lldp interface all
+
+# @id FAB-MCLAG @sev 2 @title "MC-LAG configuration in a fabric that does not use MC-LAG" @doc "HLD-evpn-fabric §8"
+!set multi-chassis{{*}}
+
+# @id FAB-RI @sev 2 @title "Routing instance present; none are used in this release" @doc "HLD-evpn-fabric §8"
+!set routing-instances {{*}}
+
+# @id FAB-QINQ-LEFTOVER @sev 2 @title "Leftover QinQ configuration from the retired design" @doc "HLD-evpn-fabric §9"
+!set interfaces {{*}} vlan-tags {{*}}
+!set interfaces {{*}} flexible-vlan-tagging
+!set vlans QINQ-{{*}}

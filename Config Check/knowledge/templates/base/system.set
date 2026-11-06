@@ -1,0 +1,48 @@
+# Base system template. Applies to every role.
+# Syntax: see knowledge/README.md
+
+# @id BASE-SSH-ROOT @sev 4 @title "Root login over SSH is not denied" @doc "HLD-evpn-fabric §2.1"
+set system services ssh root-login deny
+
+# @id BASE-SSH-V2 @sev 3 @title "SSH not restricted to protocol v2" @doc "HLD-evpn-fabric §2.1"
+set system services ssh protocol-version v2
+
+# @id BASE-NETCONF @sev 2 @title "NETCONF over SSH not enabled" @doc "HLD-evpn-fabric §2.1"
+set system services netconf ssh
+
+# @id BASE-ROOT-AUTH @sev 3 @title "No root password for console recovery" @doc "HLD-evpn-fabric §2.1"
+set system root-authentication {{*}}
+
+# @id BASE-RO-CLASS @sev 2 @title "Read-only automation login class missing or widened" @doc "HLD-evpn-fabric §2.1"
+set system login class cc-ro permissions view
+set system login class cc-ro permissions view-configuration
+
+# @id BASE-CLEARTEXT-MGMT @sev 4 @title "Clear-text management service enabled" @doc "HLD-evpn-fabric §2.1"
+!set system services telnet{{*}}
+!set system services ftp{{*}}
+
+# @id BASE-MGMT-RA @sev 2 @title "IPv6 router advertisements enabled on management interface" @doc "HLD-evpn-fabric §2.1"
+!set protocols router-advertisement interface fxp0.0{{*}}
+
+# @id BASE-NTP @sev 3 @title "NTP servers not configured to standard" @doc "HLD-evpn-fabric §2.2"
+set system ntp server {{ntp1}}
+set system ntp server {{ntp2}}
+
+# @id BASE-TZ @sev 1 @title "Time zone not set to UTC" @doc "HLD-evpn-fabric §2.2"
+set system time-zone UTC
+
+# @id BASE-SYSLOG-REMOTE @sev 3 @title "No remote syslog host" @doc "HLD-evpn-fabric §2.3"
+set system syslog host {{syslog_host}} any notice
+
+# @id BASE-SYSLOG-LOCAL @sev 2 @title "Standard local syslog files missing" @doc "HLD-evpn-fabric §2.3"
+set system syslog file messages any notice
+set system syslog file interactive-commands interactive-commands any
+
+# @id BASE-SNMP-V2C @sev 4 @title "SNMPv2c community configured" @doc "HLD-evpn-fabric §2.4"
+!set snmp community {{*}}
+
+# @id BASE-BANNER @sev 1 @title "Login banner missing" @doc "HLD-evpn-fabric §2.5"
+set system login message {{*}}
+
+# @id BASE-ARP-TIMER @sev 2 @title "Unapproved ARP aging-timer deviation" @doc "HLD-evpn-fabric §2.6"
+!set system arp aging-timer {{*}}

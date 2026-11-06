@@ -1,0 +1,22 @@
+# EVPN overlay template: spines and leaves.
+# Syntax: see knowledge/README.md
+
+# @id FAB-OL-GROUP @sev 4 @title "Overlay BGP group not to standard" @doc "HLD-evpn-fabric §5"
+set protocols bgp group OVERLAY type external
+set protocols bgp group OVERLAY multihop no-nexthop-change
+set protocols bgp group OVERLAY local-address {{lo0}}
+set protocols bgp group OVERLAY family evpn signaling
+set protocols bgp group OVERLAY multipath multiple-as
+
+# @id FAB-OL-BFD @sev 3 @title "Overlay BGP sessions without BFD to standard" @doc "HLD-evpn-fabric §5"
+set protocols bgp group OVERLAY bfd-liveness-detection minimum-interval 3000
+set protocols bgp group OVERLAY bfd-liveness-detection multiplier 3
+
+# @id FAB-OL-NBR @sev 2 @title "Overlay neighbor missing description" @doc "HLD-evpn-fabric §5"
+# @scope ^set protocols bgp group OVERLAY neighbor (?P<nbr>\S+) peer-as
+set protocols bgp group OVERLAY neighbor {{nbr}} description {{*}}
+
+# Every leaf peers with every spine (underlay and overlay), checked against the
+# inventory: role var peer_role, device vars lo0 and asn.
+# @id FAB-PEERS @sev 4 @title "Fabric BGP sessions do not match the inventory" @doc "HLD-evpn-fabric §4.3, §5"
+# @builtin fabric_peers

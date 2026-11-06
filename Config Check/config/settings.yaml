@@ -1,0 +1,26 @@
+# Config Check runtime settings.
+
+mcp:
+  url: http://junos-mcp:30030/mcp/
+  token_file: /secrets/jmcp-backend.token
+  timeout_s: 120
+
+llm:
+  enabled: true
+  base_url: http://192.168.1.232:11434
+  model: deepseek-r1:14b   # best of qwen3.5:9b, deepseek-r1:14b, gpt-oss:20b on an RTX 3060 (Nov 2026 tests)
+  embed_model: nomic-embed-text
+  # Local models only. Anything not listed here is refused (keeps :cloud models out).
+  allowed_models: [qwen3.5:9b, deepseek-r1:14b, deepseek-r1:8b, gpt-oss:20b, gemma4:e4b]
+  temperature: 0.1
+  num_ctx: 8192
+  timeout_s: 240
+  retrieve_k: 4            # design/template passages per prompt
+  min_confidence: 0.5      # drop LLM findings below this
+
+scoring:
+  # Penalty per open finding by severity (index = severity). Score = 100 - avg penalty per device.
+  weights: [0, 1, 2, 4, 7, 12]
+
+retention:
+  scans: 50                # keep this many scans (configs + findings); pinned baselines are always kept

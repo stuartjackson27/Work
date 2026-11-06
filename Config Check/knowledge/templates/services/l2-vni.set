@@ -1,0 +1,18 @@
+# Layer 2 services over VXLAN (role evpn-leaf).
+# Syntax: see knowledge/README.md
+
+# VLAN name V<id>, VNI = vni_base + vlan-id, same VNI on every leaf.
+# @id SVC-VNI @sev 5 @title "VLAN to VNI mapping not to standard" @doc "HLD-evpn-fabric §7.2"
+# @builtin vni_mapping
+
+# @id SVC-ACCESS @sev 2 @title "Host access port missing description" @doc "HLD-evpn-fabric §7.3"
+# @scope ^set interfaces (?P<ifd>(?:ge|xe|et)-[\d/]+) unit 0 family ethernet-switching interface-mode access
+set interfaces {{ifd}} description {{*}}
+
+# @id SVC-UPLINK-ACCESS @sev 4 @title "Host port configured on a fabric uplink" @doc "HLD-evpn-fabric §7.3"
+!set interfaces ge-0/0/0 unit 0 family ethernet-switching {{*}}
+!set interfaces ge-0/0/1 unit 0 family ethernet-switching {{*}}
+
+# @id SVC-BRIDGED-ONLY @sev 2 @title "IRB configured; this release is bridged only" @doc "HLD-evpn-fabric §7.4"
+!set interfaces irb {{*}}
+!set vlans {{*}} l3-interface {{*}}

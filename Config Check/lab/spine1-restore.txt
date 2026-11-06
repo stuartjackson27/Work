@@ -1,0 +1,78 @@
+############################################################################
+### SPINE1 restore: rebuilt from Config Check scan #21 (4 Nov 18:07),
+### the last scan where SPINE1 was collected successfully.
+###
+### Masked secrets (/* SECRET-DATA */) were replaced:
+###   - root password: you set it interactively (step 1)
+###   - configcheck SSH key: the public key from the config-check VM
+############################################################################
+
+### Step 1, on the Spine_1 console (login: root, no password on a factory box)
+cli
+configure
+set system root-authentication plain-text-password
+#   (type your root password twice when prompted)
+
+### Step 2, paste everything below, then: commit and-quit
+set system host-name SPINE1
+set system login class cc-ro permissions view
+set system login class cc-ro permissions view-configuration
+set system login class cc-ro deny-commands "(request|clear|restart|start|file|configure)"
+set system login user configcheck uid 2000
+set system login user configcheck class cc-ro
+set system login user configcheck authentication ssh-ed25519 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDJDeudzYLqGY+XYbBiHEReRg3tXuNWETjZA8nbqb73 configcheck@config-check"
+set system login message Boo
+set system services netconf ssh
+set system services ssh root-login allow
+set system services ssh protocol-version v2
+set system time-zone UTC
+set system syslog host 10.250.0.20 any notice
+set system syslog file interactive-commands interactive-commands any
+set system syslog file messages any notice
+set system syslog file messages authorization info
+set interfaces ge-0/0/0 description "to QFX1 ge-0/0/0"
+set interfaces ge-0/0/0 mtu 9192
+set interfaces ge-0/0/0 unit 0 family inet address 10.0.1.0/31
+set interfaces ge-0/0/1 description "to QFX2 ge-0/0/1"
+set interfaces ge-0/0/1 mtu 9192
+set interfaces ge-0/0/1 unit 0 family inet address 10.0.1.2/31
+delete interfaces fxp0 unit 0 family inet dhcp
+set interfaces fxp0 unit 0 family inet address 192.168.1.54/24
+set interfaces lo0 unit 0 family inet address 10.255.0.1/32
+set policy-options policy-statement ECMP then load-balance per-packet
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 from interface lo0.0
+set policy-options policy-statement UNDERLAY-EXPORT term LO0 then accept
+set routing-options router-id 10.255.0.1
+set routing-options autonomous-system 65001
+set routing-options forwarding-table export ECMP
+set protocols bgp group UNDERLAY type external
+set protocols bgp group UNDERLAY export UNDERLAY-EXPORT
+set protocols bgp group UNDERLAY multipath multiple-as
+set protocols bgp group UNDERLAY bfd-liveness-detection minimum-interval 1000
+set protocols bgp group UNDERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group UNDERLAY neighbor 10.0.1.1 description QFX1
+set protocols bgp group UNDERLAY neighbor 10.0.1.1 peer-as 65011
+set protocols bgp group UNDERLAY neighbor 10.0.1.3 description QFX2
+set protocols bgp group UNDERLAY neighbor 10.0.1.3 peer-as 65012
+set protocols bgp group OVERLAY type external
+set protocols bgp group OVERLAY multihop no-nexthop-change
+set protocols bgp group OVERLAY local-address 10.255.0.1
+set protocols bgp group OVERLAY keep all
+set protocols bgp group OVERLAY family evpn signaling
+set protocols bgp group OVERLAY multipath multiple-as
+set protocols bgp group OVERLAY bfd-liveness-detection minimum-interval 3000
+set protocols bgp group OVERLAY bfd-liveness-detection multiplier 3
+set protocols bgp group OVERLAY neighbor 10.255.0.11 description QFX1
+set protocols bgp group OVERLAY neighbor 10.255.0.11 peer-as 65011
+set protocols bgp group OVERLAY neighbor 10.255.0.12 description QFX2
+set protocols bgp group OVERLAY neighbor 10.255.0.12 peer-as 65012
+set protocols lldp interface all
+set protocols lldp-med interface all
+
+### Step 3, save a rescue copy so a future crash can roll back locally
+request system configuration rescue save
+
+### Notes
+### - "delete ... dhcp" gives an error if fxp0 has no DHCP config. That's harmless; carry on.
+### - If the console keeps printing "Waiting for Junos VCP to shutdown" and won't give
+###   you a Junos prompt, stop the node in EVE, Wipe it, start it, and then paste this.

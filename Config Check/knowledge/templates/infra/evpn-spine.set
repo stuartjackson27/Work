@@ -1,0 +1,11 @@
+# Spine-only template (role evpn-spine).
+# Syntax: see knowledge/README.md
+
+# @id SPINE-KEEP-ALL @sev 5 @title "Spine discards EVPN routes (OVERLAY keep all missing)" @doc "HLD-evpn-fabric §6"
+set protocols bgp group OVERLAY keep all
+
+# @id SPINE-LEAN @sev 3 @title "Leaf-only configuration present on a spine" @doc "HLD-evpn-fabric §6"
+!set protocols evpn {{*}}
+!set switch-options {{*}}
+!set vlans {{*}} vxlan {{*}}
+!set interfaces {{*}} unit {{*}} family ethernet-switching {{*}}
