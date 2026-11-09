@@ -1,0 +1,26 @@
+# Secrets: SSH key for the devices, MCP tokens. NEVER commit.
+secrets/
+*.token
+.tokens
+jmcp-tokens.json
+*_ed25519
+*_ed25519.pub
+# Runtime data: SQLite DB, scan config backups, embedding cache
+data/
+# Generated from inventory.yaml by scripts/gen_devices.py
+config/devices.json
+# Upstream MCP server is cloned, not vendored
+mcp/junos-mcp-server/
+# Python / editor noise
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.env
+.DS_Store
+# Terraform
+deploy/terraform/.terraform/
+deploy/terraform/*.tfstate*
+deploy/terraform/terraform.tfvars
+deploy/terraform/.terraform.lock.hcl
+gh_deploy*

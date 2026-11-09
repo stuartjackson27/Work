@@ -4,12 +4,14 @@ Config Check reads everything in this folder on every scan.
 
 ```
 knowledge/
-├── design/              Design docs (.md, .txt). Used by the LLM as reference.
+├── design/              Design docs (.md, .txt). LLM reference for the Anomalies tab.
+├── security/            Security baseline (.md). LLM reference for the Security tab.
 ├── archive/             Retired designs and templates. Never read by scans.
 └── templates/
-    ├── base/            Applies to every role
-    ├── infra/           Interfaces, IGP/BGP underlay, VLANs
-    └── services/        Customer services (VRs, VRFs, L2VPN, QoS)
+    ├── base/            Every role: management, time, logging, SNMP   -> Anomalies tab
+    ├── infra/           Interfaces, IGP/BGP underlay/overlay, VLANs   -> Anomalies tab
+    ├── services/        Customer services (VRs, VRFs, L2VPN, QoS)     -> Anomalies tab
+    └── security/        Security controls                            -> Security tab
 ```
 
 Which templates apply to which role is set in `config/inventory.yaml`
@@ -35,8 +37,12 @@ set system ntp server {{ntp2}}
 | `# @builtin <name>` | Run a built-in check (see below) instead of matching lines. |
 | `# plain comment` | Ignored by the rule engine; still read by the LLM. |
 
-Metadata keys: `@id` (unique), `@sev` 1–5, `@title`, `@doc` (design
-reference shown on the finding).
+Metadata keys: `@id` (unique; never rename, because exceptions are tied to it), `@sev` 1–5,
+`@title`, `@doc` (design reference shown on the finding). A `# @practice "..."` line
+under the header sets the best-practice text shown on the Security tab.
+
+Full how-to, with worked examples: [docs/OPERATOR-GUIDE.md](../docs/OPERATOR-GUIDE.md).
+Check your edits with `python scripts/check_knowledge.py`.
 
 Placeholders:
 
@@ -55,6 +61,7 @@ each device against the addressing plan.
 
 | Name | What it checks |
 |---|---|
+| `bgp_auth` | Every BGP group authenticated (group level, or on every neighbor) |
 | `fabric_peers` | UNDERLAY and OVERLAY BGP sessions match the inventory: one overlay session to every device of role `vars.peer_role` (its `lo0`, `peer-as` = its `asn`), at least one underlay session per peer ASN, and no unknown neighbors or ASNs |
 | `vni_mapping` | Every VLAN (except `default`) has `vxlan vni` = `vni_base` + vlan-id and is named `<vlan_prefix><vlan-id>` |
 | `vlan_name_tags` | Retired QinQ design: VLANs named `QINQ-<S>-<C>` match their unit's tags |
@@ -67,8 +74,8 @@ automatically. Ignore patterns live in `roles.<role>.drift_ignore`.
 
 | Role | Templates | Design |
 |---|---|---|
-| `evpn-spine` | base, infra/fabric-underlay, infra/fabric-overlay, infra/evpn-spine | HLD-evpn-fabric |
-| `evpn-leaf` | base, infra/fabric-underlay, infra/fabric-overlay, infra/evpn-leaf, services/l2-vni | HLD-evpn-fabric |
+| `evpn-spine` | base, infra/fabric-underlay, infra/fabric-overlay, infra/evpn-spine, security/common | HLD-evpn-fabric, SEC-baseline-junos |
+| `evpn-leaf` | base, infra/fabric-underlay, infra/fabric-overlay, infra/evpn-leaf, services/l2-vni, security/common, security/l2-edge | HLD-evpn-fabric, SEC-baseline-junos |
 
 To add a device, add it under its role in `config/inventory.yaml` with its
 `lo0` and `asn`, then run `scripts/gen_devices.py` and restart the stack. The

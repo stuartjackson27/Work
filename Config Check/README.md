@@ -57,26 +57,62 @@ Config Check is **read-only**: it never pushes config.
 | `knowledge/templates/` | `base/`, `infra/`, `services/`, `security/` rule templates |
 | `knowledge/archive/` | Retired QinQ edge design (not loaded) |
 | `mcp/policy/` | `block.cfg` (deny all config loads) and `block.cmd` (show-only) |
-| `scripts/` | `setup.sh` (first-time install), `gen_devices.py` (inventory → MCP devices.json) |
+| `scripts/` | `deploy.sh` (full VM bootstrap), `setup.sh` (keys, token, containers), `gen_devices.py` (inventory → MCP devices.json), `check_knowledge.py` (validate edits) |
+| `deploy/terraform/` | Proxmox VM + cloud-init → running Config Check in one apply |
 | `lab/` | EVE-NG EVPN-VXLAN fabric configs (2 spines, 2 leaves) and the Spine_1 restore file |
-| `docs/` | Device prep, production hardening list, slide deck, screenshots |
+| `docs/` | **[Operator guide](docs/OPERATOR-GUIDE.md)** (devices, roles, knowledge, settings, keys), device prep, hardening list, deck |
 
 ## Rebuild from scratch
 
-1. **VM:** Ubuntu 24.04, 2 vCPU, 2–4 GB RAM, 32 GB disk, on the network that can reach the devices'
-   management IPs. Install Docker: `curl -fsSL https://get.docker.com | sh`, then add your user to the `docker` group.
-2. **Ollama** (GPU host): install it, then `ollama pull deepseek-r1:14b` and `ollama pull nomic-embed-text`.
-   Set `OLLAMA_HOST=0.0.0.0` and firewall it to the VM's IP. Put its URL in `config/settings.yaml` → `llm.base_url`.
-3. **Clone and set up:**
-   ```bash
-   sudo mkdir -p /opt/config-check && sudo chown $USER /opt/config-check
-   git clone https://github.com/stuartjackson27/config-check /opt/config-check
-   cd /opt/config-check && ./scripts/setup.sh
-   ```
-   `setup.sh` clones the MCP server, creates the device SSH key, generates `devices.json` and the MCP token,
-   and starts the stack.
-4. **Devices:** apply [docs/DEVICE-PREP.md](docs/DEVICE-PREP.md) using the public key the script printed.
-5. Open `http://<vm>:8080` and press **Run scan**.
+**Fastest:** `deploy/terraform` creates the VM on Proxmox and installs everything with one
+`terraform apply` ([guide](deploy/terraform/README.md)). On a VM you've already built (Ubuntu or AlmaLinux), run
+`sudo REPO_URL=... bash scripts/deploy.sh` instead; it detects the distro. The manual steps below are what those automate.
+
+
+Supported OS: **Ubuntu 22.04/24.04** or **AlmaLinux / Rocky / RHEL 9–10**. Spec: 2 vCPU, 4 GB RAM, 32 GB disk,
+on a network that can reach the devices' management IPs and the Ollama host.
+
+**1. Install Docker**
+
+| Ubuntu | AlmaLinux / Rocky (RHEL: use `/linux/rhel/` in the repo URL) |
+|---|---|
+| `sudo apt update && sudo apt -y install git python3-yaml` | `sudo dnf -y install git python3-pyyaml dnf-plugins-core` |
+| `curl -fsSL https://get.docker.com \| sudo sh` | `sudo dnf -y remove podman-docker podman buildah runc` *(they conflict with Docker CE)* |
+| | `sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo` |
+| | `sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin` |
+| `sudo systemctl enable --now docker` | `sudo systemctl enable --now docker` |
+| `sudo usermod -aG docker $USER && newgrp docker` | `sudo usermod -aG docker $USER && newgrp docker` |
+
+**2. Open the dashboard port (AlmaLinux only).** firewalld is on by default:
+```bash
+sudo firewall-cmd --permanent --add-port=8080/tcp && sudo firewall-cmd --reload
+```
+SELinux can stay **Enforcing**: every volume in `docker-compose.yml` carries a `:z` label (ignored on Ubuntu).
+
+**3. Ollama** (GPU host): install it, then `ollama pull deepseek-r1:14b` and `ollama pull nomic-embed-text`.
+Set `OLLAMA_HOST=0.0.0.0` and firewall it to the VM's IP. Put its URL in `config/settings.yaml` → `llm.base_url`.
+
+**4. Clone and set up**
+```bash
+sudo mkdir -p /opt/config-check && sudo chown $USER: /opt/config-check
+git clone git@github.com:stuartjackson27/config-check.git /opt/config-check   # private repo: deploy key or gh auth
+cd /opt/config-check && ./scripts/setup.sh
+```
+`setup.sh` clones the MCP server, creates the device SSH key, generates `devices.json` and the MCP token,
+and starts the stack.
+
+**5. Devices:** apply [docs/DEVICE-PREP.md](docs/DEVICE-PREP.md) using the public key the script printed.
+
+**6. Check it:** `docker compose ps` (both Up, junos-mcp healthy), then open `http://<vm>:8080` and press **Run scan**.
+
+**Troubleshooting on AlmaLinux**
+
+| Symptom | Fix |
+|---|---|
+| Container logs show `Permission denied` on `/opt/config-check/...` | SELinux label missing: check the `:z` on that volume, then `docker compose up -d` |
+| Dashboard not reachable from your PC | `sudo firewall-cmd --list-ports` should include `8080/tcp` |
+| `dnf install docker-ce` conflicts | Remove `podman-docker podman buildah runc` first (step 1) |
+| Backend can't write `data/` | `sudo chown -R 1000:1000 /opt/config-check/data` |
 
 Secrets (`secrets/`) and runtime data (`data/`) are git-ignored and must never be committed.
 
