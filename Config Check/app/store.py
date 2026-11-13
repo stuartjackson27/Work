@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS scan_devices (
 CREATE TABLE IF NOT EXISTS findings (
   id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, fingerprint TEXT, device TEXT, role TEXT,
   category TEXT, source TEXT, severity INTEGER, title TEXT, path TEXT, reason TEXT,
-  evidence TEXT, fix TEXT, doc TEXT, rule_id TEXT, confidence REAL, practice TEXT DEFAULT '');
+  evidence TEXT, fix TEXT, doc TEXT, rule_id TEXT, confidence REAL, practice TEXT DEFAULT '',
+  from_scan INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_findings_scan ON findings(scan_id);
 CREATE TABLE IF NOT EXISTS decisions (
   fingerprint TEXT PRIMARY KEY, state TEXT, note TEXT, updated TEXT);
@@ -42,8 +43,11 @@ def db() -> sqlite3.Connection:
     c = sqlite3.connect(DATA / "config-check.db")
     c.row_factory = sqlite3.Row
     c.executescript(SCHEMA)
-    if "practice" not in {r[1] for r in c.execute("PRAGMA table_info(findings)")}:
+    cols = {r[1] for r in c.execute("PRAGMA table_info(findings)")}
+    if "practice" not in cols:
         c.execute("ALTER TABLE findings ADD COLUMN practice TEXT DEFAULT ''")
+    if "from_scan" not in cols:
+        c.execute("ALTER TABLE findings ADD COLUMN from_scan INTEGER DEFAULT 0")
     return c
 
 
@@ -75,6 +79,30 @@ def save_findings(scan_id: int, findings: list[Finding]) -> None:
               f.reason, json.dumps(f.evidence), json.dumps(f.fix), f.doc, f.rule_id, f.confidence,
               f.practice)
              for f in findings])
+
+
+FIELDS = ("fingerprint,device,role,category,source,severity,title,path,reason,evidence,fix,doc,"
+          "rule_id,confidence,practice")
+
+
+def carry_findings(scan_id: int, device: str, security: bool, source: str) -> tuple[int, list[int]]:
+    """Copy one part of a device's findings (security or anomalies, Rule or LLM) from its previous
+    good scan into this scan, for a part that was not run. Keeps the scan the findings were first
+    produced in (from_scan). Returns (rows copied, ids of the scans the copied findings came from)."""
+    prev = previous_good(device, scan_id)
+    if not prev:
+        return 0, []
+    dom = "category='Security'" if security else "category!='Security'"
+    with db() as c:
+        n = c.execute(
+            f"INSERT INTO findings(scan_id,{FIELDS},from_scan) SELECT ?,{FIELDS},"
+            f"CASE WHEN from_scan>0 THEN from_scan ELSE scan_id END FROM findings "
+            f"WHERE scan_id=? AND device=? AND source=? AND {dom}",
+            (scan_id, prev["id"], device, source)).rowcount
+        orig = [r[0] for r in c.execute(
+            f"SELECT DISTINCT from_scan FROM findings WHERE scan_id=? AND device=? AND source=? AND {dom}",
+            (scan_id, device, source))]
+    return n, orig
 
 
 def set_decision(fp: str, state: str, note: str = "") -> None:

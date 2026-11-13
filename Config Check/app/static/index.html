@@ -182,6 +182,16 @@ pre .add{color:var(--code-add)} pre .del{color:var(--code-del)} pre .cm{color:#7
 pre .ctx{color:#9fb0bb}
 .scanpick{font:inherit;font-size:12px;background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px}
 .stats{font-family:var(--f-mono);font-size:11px;color:var(--muted);padding:8px 14px 12px;border-top:1px solid var(--line)}
+.go{display:inline-flex;gap:14px;align-items:center;flex-wrap:wrap}
+.scope{display:inline-flex;gap:10px;align-items:center;font-size:12px;color:var(--fg)}
+.scope label{display:inline-flex;gap:5px;align-items:center;cursor:pointer;white-space:nowrap}
+.scope input{accent-color:var(--accent);margin:0}
+.scope .sep{width:1px;height:16px;background:var(--line)}
+.carry{margin:0 14px 10px;padding:7px 10px;border:1px dashed var(--line);border-radius:6px;font-size:12px;color:var(--muted)}
+.carry b{color:var(--fg);font-weight:500}
+.carry .opt{display:inline-flex;gap:5px;align-items:center;margin-left:8px;cursor:pointer;white-space:nowrap}
+.carry input{accent-color:var(--accent);margin:0}
+.src .from{font-family:var(--f-mono);font-size:10px;color:var(--muted);margin-left:4px}
 .note{width:100%;font:inherit;font-size:13px;background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 9px}
 </style>
 <header>
@@ -192,7 +202,15 @@ pre .ctx{color:#9fb0bb}
       <span>Finished <b id="lastRun">–</b></span>
       <span>Model <b id="model">–</b></span>
       <span>Templates <b id="tpl">–</b></span>
-      <button class="run" id="runBtn" type="button">▶ Run scan</button>
+      <span class="go"><span class="scope" role="group" aria-label="What to scan">
+        <label title="Design templates, drift, LLM design review and change reviews"><input type="checkbox" id="optA" checked> Anomalies</label>
+        <label title="Security templates and LLM security review"><input type="checkbox" id="optS" checked> Security</label>
+        <span class="sep" aria-hidden="true"></span>
+        <label title="Rule engine: templates and role drift (fast)"><input type="checkbox" id="optR" checked> Policy engine</label>
+        <label title="LLM review against the design docs and security baseline (slow)"><input type="checkbox" id="optL" checked> LLM</label>
+        <select class="scanpick" id="optM" aria-label="LLM model" title="LLM model for this scan"><option>loading…</option></select>
+      </span>
+      <button class="run" id="runBtn" type="button">▶ Run scan</button></span>
     </div>
   </div>
   <div class="progress"><i id="prog"></i></div>
@@ -231,6 +249,7 @@ pre .ctx{color:#9fb0bb}
 
     <section class="panel" aria-labelledby="fH">
       <div class="hd"><h2 id="fH">Anomalies</h2><span class="label" id="fCount"></span></div>
+      <div class="carry" id="carry" hidden></div>
       <div class="filters">
         <button class="chip" type="button" data-f="sev" data-v="5" aria-pressed="false">Critical</button>
         <button class="chip" type="button" data-f="sev" data-v="4" aria-pressed="false">High</button>
@@ -266,13 +285,15 @@ pre .ctx{color:#9fb0bb}
 const SEV={5:"Critical",4:"High",3:"Medium",2:"Low",1:"Info"};
 const sevVar=s=>s?`var(--sev${s})`:"var(--ok)";
 let S=null; // API state
-const st={sev:new Set(),src:new Set(),cat:"",q:"",dev:"",sel:null,scan:null,view:"findings"};
+const st={sev:new Set(),src:new Set(),cat:"",q:"",dev:"",sel:null,scan:null,view:"findings",carried:false};
+try{st.carried=localStorage.getItem("cc.showCarried")==="1"}catch(e){}
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const SECV=()=>st.view==="security";
 const inDom=(f,sec)=>(f.category==="Security")===sec;
-const F=()=>S?S.findings.filter(f=>inDom(f,SECV())):[];
-const openIn=sec=>S?S.findings.filter(f=>inDom(f,sec)&&f.state!=="accepted"):[];
+const shown=f=>st.carried||!f.from_scan;   // results carried from an earlier scan are hidden unless asked for
+const F=()=>S?S.findings.filter(f=>inDom(f,SECV())&&shown(f)):[];
+const openIn=sec=>S?S.findings.filter(f=>inDom(f,sec)&&shown(f)&&f.state!=="accepted"):[];
 const open=()=>F().filter(f=>f.state!=="accepted");
 const worst=h=>Math.max(0,...open().filter(f=>f.device===h).map(f=>f.severity));
 const devInfo=h=>(S.devices.find(d=>d.device===h)||{});
@@ -280,7 +301,7 @@ const fmtTime=t=>{if(!t)return"–";const d=new Date(t);return d.toLocaleDateStr
 
 async function api(path,opts){
   const r=await fetch(path,opts);
-  if(!r.ok){let m=r.statusText;try{m=(await r.json()).error||m}catch(e){}throw new Error(m)}
+  if(!r.ok){let m=r.statusText;try{const j=await r.json();m=j.error||j.detail||m}catch(e){}throw new Error(m)}
   return r.json();
 }
 async function load(){
@@ -289,6 +310,29 @@ async function load(){
   render();
   if(S.progress&&S.progress.running) poll();
 }
+function scopeTag(raw){
+  let x;try{x=(typeof raw==="string"?JSON.parse(raw||"{}"):raw||{}).scope}catch(e){}
+  if(!x)return"";
+  const parts=[x.anomalies&&!x.security?"anomalies only":"",x.security&&!x.anomalies?"security only":"",x.llm===false?"policy only":"",x.rules===false?"LLM only":""].filter(Boolean);
+  return parts.length?" · "+parts.join(", "):"";
+}
+function carryNote(){
+  const c=S.scan&&S.scan.stats&&S.scan.stats.carried&&S.scan.stats.carried[SECV()?"security":"anomalies"];
+  const el=$("carry");
+  if(!c){el.hidden=true;return}
+  const what=SECV()?"security check":"anomaly check", What=SECV()?"Security":"Anomalies", from=(c.from||[]).map(i=>"#"+i).join(", ")||"–";
+  const tog=c.findings?` <label class="opt"><input type="checkbox" data-carried ${st.carried?"checked":""}> Show ${c.findings} result${c.findings>1?"s":""} from scan ${from}</label>`:"";
+  el.innerHTML=(c.sources.length>1
+    ?`<b>The ${what} didn't run in this scan.</b>`
+    :c.sources[0]==="LLM"
+      ?`<b>${What}: LLM review skipped in this scan.</b> Policy engine findings are current.`
+      :`<b>${What}: policy engine skipped in this scan.</b> LLM findings are current.`)+tog;
+  el.hidden=false;
+}
+function notRun(){const c=S.scan&&S.scan.stats&&S.scan.stats.carried&&S.scan.stats.carried[SECV()?"security":"anomalies"];return !!(c&&c.sources.length>1&&!st.carried)}
+document.addEventListener("change",e=>{if(!e.target.matches("[data-carried]"))return;
+  st.carried=e.target.checked;try{localStorage.setItem("cc.showCarried",st.carried?"1":"0")}catch(err){}
+  st.sel=null;summary();roles();rows()});
 function banner(msg){const b=$("banner");b.textContent=msg||"";b.hidden=!msg}
 
 function header(){
@@ -297,7 +341,7 @@ function header(){
   $("model").textContent=sc?sc.model:(S.llm.model||"–");
   $("tpl").textContent=sc?sc.templates:"–";
   $("scanPick").innerHTML=(S.scans||[]).filter(s=>s.status!=="running").map(s=>
-    `<option value="${s.id}" ${sc&&s.id===sc.id?"selected":""}>#${s.id} · ${fmtTime(s.started)} · ${s.status}</option>`).join("")||`<option>no scans yet</option>`;
+    `<option value="${s.id}" ${sc&&s.id===sc.id?"selected":""}>#${s.id} · ${fmtTime(s.started)} · ${s.status}${scopeTag(s.stats)}</option>`).join("")||`<option>no scans yet</option>`;
   if(sc&&sc.status==="partial") banner("Last scan finished with warnings: "+sc.error);
   else if(sc&&sc.status==="failed") banner("Last scan failed: "+sc.error);
   else banner("");
@@ -307,9 +351,9 @@ function summary(){
   for(let s=1;s<=5;s++) $("c"+s).textContent=o.filter(f=>f.severity===s).length;
   const devs=S.devices.filter(d=>d.status==="ok");
   const w=S.weights; const pen=o.reduce((a,f)=>a+(w[f.severity]||0),0);
-  const score=S.scan&&devs.length?Math.max(0,Math.round(100-pen/devs.length)):null;
+  const score=S.scan&&devs.length&&!notRun()?Math.max(0,Math.round(100-pen/devs.length)):null;
   $("score").textContent=score??"–";
-  $("scoreSub").textContent=S.scan?`${devs.filter(d=>!worst(d.device)).length} of ${S.devices.length} devices clean`:"Run a scan to get a score";
+  $("scoreSub").textContent=!S.scan?"Run a scan to get a score":notRun()?"Not checked in this scan":`${devs.filter(d=>!worst(d.device)).length} of ${S.devices.length} devices clean`;
   const C=2*Math.PI*26; $("gArc").setAttribute("stroke-dasharray",`${C*(score||0)/100} ${C}`);
   $("gArc").setAttribute("stroke",score>=80?"var(--ok)":score>=60?"var(--sev3)":"var(--sev4)");
   $("scoreLbl").textContent=SECV()?"Security score":"Compliance score";
@@ -331,7 +375,7 @@ function roles(){
     return `<div class="role"><h3><span title="${esc(info.description)}">${esc(r)}</span><span class="num">${n} open</span></h3><div class="tiles">${
       ds.map(d=>{const di=devInfo(d.name);const down=S.scan&&di.status!=="ok";const w=worst(d.name);
         const fs=open().filter(f=>f.device===d.name).sort((a,b)=>b.severity-a.severity);
-        return `<button type="button" class="tile${st.dev===d.name?" on":""}${down?" down":""}" style="--c:${sevVar(w)}" data-dev="${d.name}" aria-pressed="${st.dev===d.name}">
+        return `<button type="button" class="tile${st.dev===d.name?" on":""}${down?" down":""}" style="--c:${notRun()?"var(--muted)":sevVar(w)}" data-dev="${d.name}" aria-pressed="${st.dev===d.name}">
           <span class="h">${esc(d.name)}</span><span class="m">${esc(d.host)} · ${esc(di.version||d.model)}</span>
           ${down?`<span class="err">${esc(di.status||"not scanned")}</span>`:`<span class="dots">${fs.map(f=>`<span style="--c:${sevVar(f.severity)}" title="${SEV[f.severity]}"></span>`).join("")}</span>`}</button>`}).join("")
     }</div></div>`}).join("");
@@ -355,16 +399,17 @@ function rows(){
   $("fH").textContent=SECV()?"Security findings":"Anomalies";
   $("catH").textContent=SECV()?"Baseline":"Category";
   $("cat").hidden=SECV();
+  carryNote();
   if(!S.scan){$("rows").innerHTML=`<tr><td colspan="7" class="empty">No scans yet. Press <b>Run scan</b> to collect configs from ${S.inventory.length} devices and check them.</td></tr>`;$("detail").innerHTML="";return}
   $("rows").innerHTML=list.length?list.map(f=>`<tr tabindex="0" data-id="${f.id}" class="${st.sel===f.id?"sel":""} ${f.state==="accepted"?"accepted":""}">
     <td><span class="sev" style="--c:var(--sev${f.severity});--b:var(--sev${f.severity}-bg)"><i>${f.severity}</i>${SEV[f.severity]}</span></td>
     <td class="mono">${esc(f.device)}</td>
     <td><div class="title">${esc(f.title)}</div><div class="path">${esc(f.path)}</div></td>
     <td>${SECV()?`<span class="mono">${esc((f.doc.match(/§[\d.]+/)||[f.doc||"–"])[0])}</span>`:esc(f.category)}</td>
-    <td><span class="src ${f.source==="LLM"?"llm":""}">${f.source}</span></td>
+    <td><span class="src ${f.source==="LLM"?"llm":""}">${f.source}</span>${f.from_scan?`<span class="from" title="Carried from scan #${f.from_scan}: this part wasn't run in the current scan">#${f.from_scan}</span>`:""}</td>
     <td class="mono"><span class="conf"><b style="width:${f.confidence*100}%"></b></span>${f.source==="Rule"?"exact":Math.round(f.confidence*100)+"%"}</td>
     <td><span class="state ${f.state}">${f.state}</span></td></tr>`).join("")
-    :`<tr><td colspan="7" class="empty">No ${SECV()?"security findings":"anomalies"} match these filters.</td></tr>`;
+    :`<tr><td colspan="7" class="empty">${notRun()?`The ${SECV()?"security":"anomaly"} check didn't run in this scan.`:`No ${SECV()?"security findings":"anomalies"} match these filters.`}</td></tr>`;
   detail();
 }
 function evLine(s){
@@ -378,7 +423,7 @@ function detail(){
   $("detail").innerHTML=`<div class="detail">
     <div class="full"><span class="sev" style="--c:var(--sev${f.severity});--b:var(--sev${f.severity}-bg)"><i>${f.severity}</i>${SEV[f.severity]}</span>
       <h3 style="margin-top:8px">${esc(f.title)}</h3>
-      <div class="kv" style="margin-top:6px"><span>Device <b>${esc(f.device)}</b></span><span>Role <b>${esc(f.role)}</b></span><span>Hierarchy <b>${esc(f.path)}</b></span><span>Detected by <b>${f.source==="LLM"?"LLM · "+esc(S.scan.model):"Rule engine"}</b></span>${f.rule_id?`<span>Rule <b>${esc(f.rule_id)}</b></span>`:""}</div>
+      <div class="kv" style="margin-top:6px"><span>Device <b>${esc(f.device)}</b></span><span>Role <b>${esc(f.role)}</b></span><span>Hierarchy <b>${esc(f.path)}</b></span><span>Detected by <b>${f.source==="LLM"?"LLM"+(f.from_scan?"":" · "+esc(S.scan.model)):"Rule engine"}${f.from_scan?" · scan #"+f.from_scan:""}</b></span>${f.rule_id?`<span>Rule <b>${esc(f.rule_id)}</b></span>`:""}</div>
       <p class="reason">${esc(f.reason)}</p>
       ${f.practice?`<p class="practice"><b>Best practice</b>${esc(f.practice)}</p>`:""}
       <div class="kv"><span>Reference <b>${esc(f.doc||"–")}</b></span></div></div>
@@ -492,7 +537,7 @@ async function poll(){
       await new Promise(r=>setTimeout(r,1500));
     }
   }catch(e){toast("Lost contact with backend: "+e.message)}
-  b.disabled=false;b.textContent="▶ Run scan";p.style.width="0";polling=false;load();
+  b.textContent="▶ Run scan";p.style.width="0";polling=false;scopeChanged();load();
 }
 
 document.querySelectorAll(".chip").forEach(b=>b.addEventListener("click",()=>{
@@ -516,8 +561,36 @@ $("detail").addEventListener("click",async e=>{
   if(a==="copy"){const txt=f.fix.join("\n");
     (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>toast("Fix copied"),()=>{const r=document.createRange();r.selectNodeContents(e.target.closest(".detail").querySelectorAll("pre")[1]);getSelection().removeAllRanges();getSelection().addRange(r);toast("Fix selected. Press Ctrl+C")})}
 });
+const OPTS={optA:"anomalies",optS:"security",optR:"rules",optL:"llm"};
+function scopeChanged(save){
+  const v={};for(const [id,k] of Object.entries(OPTS)) v[k]=$(id).checked;
+  if(save){try{localStorage.setItem("cc.scope",JSON.stringify(v))}catch(e){}}
+  $("optM").disabled=!v.llm;
+  if(v.llm&&$("optM").value)v.model=$("optM").value;
+  const why=!v.anomalies&&!v.security?"Tick Anomalies or Security":!v.rules&&!v.llm?"Tick Policy engine or LLM":"";
+  if(!polling){$("runBtn").disabled=!!why;$("runBtn").title=why}
+  return v;
+}
+try{const v=JSON.parse(localStorage.getItem("cc.scope")||"null");if(v)for(const [id,k] of Object.entries(OPTS)) if(k in v)$(id).checked=!!v[k]}catch(e){}
+for(const id of Object.keys(OPTS)) $(id).addEventListener("change",()=>scopeChanged(true));
+// LLM model picker: llm.allowed_models from settings.yaml; models Ollama doesn't have are greyed out.
+async function loadModels(){
+  const sel=$("optM");
+  try{
+    const r=await api("/api/models");let saved=null;try{saved=localStorage.getItem("cc.model")}catch(e){}
+    const usable=r.models.filter(m=>m.installed!==false).map(m=>m.name);
+    const pick=usable.includes(saved)?saved:usable.includes(r.default)?r.default:usable[0]||"";
+    sel.innerHTML=r.models.map(m=>`<option value="${esc(m.name)}" ${m.installed===false?"disabled":""} ${m.name===pick?"selected":""}>${esc(m.name)}${m.name===r.default?" (default)":""}${m.installed===false?" – not installed":""}</option>`).join("")||`<option value="">no models allowed</option>`;
+    sel.title=r.error||"LLM model for this scan";
+  }catch(e){sel.innerHTML=`<option value="">default model</option>`}
+  scopeChanged();
+}
+$("optM").addEventListener("change",()=>{try{localStorage.setItem("cc.model",$("optM").value)}catch(e){}});
+loadModels();
+scopeChanged();
 $("runBtn").addEventListener("click",async()=>{
-  try{await api("/api/scan",{method:"POST"});poll()}catch(e){toast(e.message)}
+  const v=scopeChanged();
+  try{await api("/api/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(v)});poll()}catch(e){toast(e.message)}
 });
 load();
 </script>

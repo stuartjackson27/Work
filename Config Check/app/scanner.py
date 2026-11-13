@@ -27,30 +27,42 @@ class Scanner:
     def running(self) -> bool:
         return bool(self.task and not self.task.done())
 
-    def start(self) -> int | None:
+    def start(self, anomalies: bool = True, security: bool = True, llm: bool = True,
+              rules: bool = True, model: str | None = None) -> int | None:
+        """Start a scan. anomalies/security pick which checks run; rules/llm pick the engines
+        (rule engine = templates + drift). model overrides llm.model from settings.yaml for this scan.
+        Parts that are skipped keep the previous scan's findings (marked with from_scan)."""
         if self.running:
             return None
         self.progress = {"running": True, "stage": "starting", "pct": 1, "message": "Starting scan",
                          "scan_id": None, "started": time.time()}
-        self.task = asyncio.create_task(self._run())
+        self.task = asyncio.create_task(self._run(anomalies, security, llm, rules, model))
         return 0
 
     def _p(self, stage: str, pct: float, message: str):
         self.progress.update(stage=stage, pct=int(pct), message=message)
         log.info("[%s %d%%] %s", stage, pct, message)
 
-    async def _run(self):
+    async def _run(self, do_anom: bool = True, do_sec: bool = True, want_llm: bool = True,
+                   do_rules: bool = True, model_override: str | None = None):
         cfg = settings()
         inv, devices = inventory()
-        llm_cfg = cfg.get("llm", {})
+        llm_cfg = dict(cfg.get("llm", {}))
+        if model_override:
+            llm_cfg["model"] = model_override
         model = llm_cfg.get("model", "")
-        use_llm = llm_cfg.get("enabled", True)
+        use_llm = want_llm and llm_cfg.get("enabled", True)
         if use_llm and model not in llm_cfg.get("allowed_models", []):
             use_llm = False
         sel = sorted({t for r in inv["roles"].values() for t in r.get("templates", [])})
-        scan_id = store.new_scan(model if use_llm else "rules only", ", ".join(sel))
+        scan_id = store.new_scan(model if use_llm else "policy engine only", ", ".join(sel))
         self.progress["scan_id"] = scan_id
-        stats: dict = {"devices": len(devices), "llm": {}}
+        # Which parts run: (security?, source). Everything else is carried from the previous scan.
+        ran = {(sec, src) for sec, on in ((False, do_anom), (True, do_sec)) if on
+               for src in (("Rule",) if do_rules else ()) + (("LLM",) if use_llm else ())}
+        stats: dict = {"devices": len(devices), "llm": {},
+                       "scope": {"anomalies": do_anom, "security": do_sec, "llm": use_llm, "rules": do_rules},
+                       "ran": sorted(f"{'security' if a else 'anomalies'}:{b}" for a, b in ran)}
         errors: list[str] = []
         try:
             # 1. collect
@@ -89,12 +101,15 @@ class Scanner:
             findings = []
             rule_by_dev: dict[str, list] = {}
             for d in devices:
-                if d.name not in configs:
+                if d.name not in configs or not do_rules:
                     continue
-                blocks = load_blocks(inv["roles"][d.role].get("templates", []))
+                blocks = [b for b in load_blocks(inv["roles"][d.role].get("templates", []))
+                          if (b.category == "Security" and do_sec) or (b.category != "Security" and do_anom)]
                 rule_by_dev[d.name] = run_rules(d, configs[d.name], blocks)
                 findings += rule_by_dev[d.name]
             for role, r in inv["roles"].items():
+                if not (do_anom and do_rules):
+                    break
                 rc = {n: configs[n] for n in (r.get("devices") or {}) if n in configs}
                 drift = role_drift(role, rc, r.get("drift_ignore", []), {})
                 findings += drift
@@ -141,14 +156,15 @@ class Scanner:
                     for i, d in enumerate(work):
                         role = inv["roles"][d.role]
                         all_blocks = load_blocks(role.get("templates", []))
-                        retr = Retriever(ollama, llm_cfg.get("embed_model", "nomic-embed-text"))
-                        n = await retr.build(design_files(role.get("design")),
-                                             [b for b in all_blocks if b.category != "Security"])
                         base = 35 + 60 * i / len(work)
 
                         def prog(msg, base=base):
                             self._p("llm", base, msg)
-                        for ch in pending.get(d.name, []):
+                        if do_anom:
+                            retr = Retriever(ollama, llm_cfg.get("embed_model", "nomic-embed-text"))
+                            n = await retr.build(design_files(role.get("design")),
+                                                 [b for b in all_blocks if b.category != "Security"])
+                        for ch in (pending.get(d.name, []) if do_anom else []):
                             if ch["kind"] != "previous":
                                 continue
                             prog(f"LLM reviewing changes on {d.name}")
@@ -157,15 +173,16 @@ class Scanner:
                                                                    ch["commits"], llm_cfg)
                             except Exception as e:  # noqa: BLE001
                                 ch["review"] = {"error": str(e)[:200]}
-                        llm_f, st = await assess_device(ollama, retr, d, role.get("description", ""),
-                                                        configs[d.name], rule_by_dev.get(d.name, []),
-                                                        llm_cfg, prog)
-                        st["passages"] = n
-                        stats["llm"][d.name] = st
-                        findings += llm_f
+                        if do_anom:
+                            llm_f, st = await assess_device(ollama, retr, d, role.get("description", ""),
+                                                            configs[d.name], rule_by_dev.get(d.name, []),
+                                                            llm_cfg, prog)
+                            st["passages"] = n
+                            stats["llm"][d.name] = st
+                            findings += llm_f
                         # Security review: same config, checked against the security baseline only.
                         sec_blocks = [b for b in all_blocks if b.category == "Security"]
-                        if role.get("security") or sec_blocks:
+                        if do_sec and (role.get("security") or sec_blocks):
                             sretr = Retriever(ollama, llm_cfg.get("embed_model", "nomic-embed-text"))
                             sn = await sretr.build(design_files(role["security"]) if role.get("security") else [], sec_blocks)
                             sec_f, sst = await assess_device(
@@ -180,6 +197,21 @@ class Scanner:
 
             self._p("store", 97, "Saving findings")
             store.save_findings(scan_id, findings)
+            # Skipped parts: keep each device's previous results so the dashboard isn't emptied.
+            carried: dict[str, dict] = {}
+            for sec in (False, True):
+                for src in ("Rule", "LLM"):
+                    if (sec, src) in ran:
+                        continue
+                    part = carried.setdefault("security" if sec else "anomalies",
+                                              {"findings": 0, "from": [], "sources": []})
+                    part["sources"].append(src)
+                    for dname in configs:
+                        n_c, src_ids = store.carry_findings(scan_id, dname, sec, src)
+                        part["findings"] += n_c
+                        part["from"] = sorted(set(part["from"]) | set(src_ids))
+            if carried:
+                stats["carried"] = carried
             for dev, chs in pending.items():
                 for ch in chs:
                     store.save_change(scan_id, dev, ch["kind"], ch["base"], ch["base_time"], ch["diff"],
@@ -187,10 +219,10 @@ class Scanner:
             removed = store.prune(int(cfg.get("retention", {}).get("scans", 50)))
             for sid in removed:
                 shutil.rmtree(DATA / "configs" / str(sid), ignore_errors=True)
-            stats["findings"] = len(findings)
+            stats["findings"] = len(findings) + sum(v["findings"] for v in stats.get("carried", {}).values())
             status = "partial" if errors else "complete"
             store.finish_scan(scan_id, status, stats, "; ".join(errors))
-            self._p("done", 100, f"Scan complete · {len(configs)} devices · {len(findings)} findings"
+            self._p("done", 100, f"Scan complete · {len(configs)} devices · {stats['findings']} findings"
                     + (f" · {len(errors)} warning(s)" if errors else ""))
         except Exception as e:  # noqa: BLE001
             log.exception("scan failed")
