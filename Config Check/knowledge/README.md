@@ -42,7 +42,7 @@ Metadata keys: `@id` (unique; never rename, because exceptions are tied to it), 
 under the header sets the best-practice text shown on the Security tab.
 
 Full how-to, with worked examples: [docs/OPERATOR-GUIDE.md](../docs/OPERATOR-GUIDE.md).
-Check your edits with `python scripts/check_knowledge.py`.
+Check your edits with a quick scan: tick Policy engine, untick LLM.
 
 Placeholders:
 

@@ -20,16 +20,10 @@ templates, the security baseline, settings, keys, and the decisions you make on 
 Config and knowledge are re-read at the start of every scan; there's no cache to clear. Design and
 baseline text is re-embedded automatically when it changes (the cache is keyed on content).
 
-**Always run the checker after an edit:**
-
-```bash
-cd /opt/config-check
-docker compose exec backend python scripts/check_knowledge.py
-```
-
-It catches duplicate rule IDs, template names that don't exist, bad regexes, unknown built-ins,
-placeholders with no value, docs without headings, and PDFs/Word files that won't be read.
-Errors stop it with exit code 1; warnings are advice.
+**Check an edit with a quick scan:** tick **Policy engine**, untick **LLM** and press **Run scan**
+(about a minute on the lab). A template typo shows up as an unexpected "missing" finding; a broken
+file (bad regex, duplicate `@id`) makes the scan fail, and the reason is in
+`docker compose logs backend --tail 50`.
 
 ### Recommended workflow
 
@@ -38,7 +32,7 @@ Errors stop it with exit code 1; warnings are advice.
    ```bash
    cd /root/Work && git pull && cp -r "Config Check/." /opt/config-check/
    ```
-3. Run the checker; if a device was added, regenerate `devices.json` (§2).
+3. If a device was added, regenerate `devices.json` (§2).
 4. Press **Run scan**.
 
 This keeps git as the record of who changed which rule and when. That matters because templates
@@ -82,7 +76,6 @@ roles:
 ```bash
 python3 scripts/gen_devices.py          # rewrites config/devices.json from the inventory
 docker compose restart junos-mcp
-docker compose exec backend python scripts/check_knowledge.py
 ```
 Then **Run scan**.
 
@@ -181,7 +174,7 @@ them **word for word**. How you write them decides how good the LLM's findings a
 | Keep values **per section**: underlay values in the underlay section, overlay in overlay | Mixed sections are how the BFD 1000/3000 false positive happened |
 
 **Adding a design doc for a role:** create `knowledge/design/HLD-<name>.md`, list it under
-the role's `design:`, run the checker, scan.
+the role's `design:`, scan.
 
 **Editing the security baseline:** `knowledge/security/SEC-baseline-junos.md` is a draft from Junos
 hardening guidance. Replace or extend it with your organisation's standard using the same format.
@@ -219,7 +212,7 @@ set system ntp trusted-key {{*}}
 | `{{*}}` | Anything to the end of the line |
 | `{{name}}`, where `name` is an inventory var | Must equal that value for this device, e.g. `{{lo0}}`, `{{ntp1}}` |
 | `{{name}}`, where `name` is a scope group | Must equal what the scope matched, e.g. the interface |
-| `{{name}}` with no value | Any single value (the checker warns you) |
+| `{{name}}` with no value | Any single value (so a misspelt name silently matches anything) |
 
 **Examples**
 
@@ -245,10 +238,8 @@ set interfaces lo0 unit 0 family inet address {{lo0}}/32
 set routing-options autonomous-system {{asn}}
 ```
 
-**Test a new rule before scanning** against a config saved by an earlier scan:
-```bash
-docker compose exec backend python scripts/check_knowledge.py --test qfx1 /opt/config-check/data/configs/<scan-id>/qfx1.set
-```
+**Test a new rule** with a policy-engine-only scan (untick **LLM**): about a minute, and the LLM
+results from the last full scan stay available behind the "Show results from scan #N" toggle.
 
 **Important: templates outrank the LLM.** If a template requires a line, the LLM can never flag that
 line, and the code drops any LLM finding that contradicts a template. A wrong template therefore
@@ -353,10 +344,10 @@ template, so it's reviewed and survives a rebuild.
 
 | I want to… | Do this |
 |---|---|
-| Add a switch to an existing role | Device prep → inventory line → `gen_devices.py` → restart `junos-mcp` → checker → scan |
-| Add a new kind of device | New role in the inventory + design doc + templates → checker → scan |
+| Add a switch to an existing role | Device prep → inventory line → `gen_devices.py` → restart `junos-mcp` → scan |
+| Add a new kind of device | New role in the inventory + design doc + templates → scan |
 | Add a design rule | Bullet in the design doc; if it has a definite answer, a template too |
 | Stop a false positive | Rule finding: fix the template. LLM finding: state the approval in the doc, or add a template so it outranks the LLM. One-off: accept as exception |
 | Use my company's security standard | Replace or extend `knowledge/security/SEC-baseline-junos.md` and `templates/security/` |
-| Make scans faster | `llm.enabled: false`, or a smaller model |
-| Try a template before scanning | `check_knowledge.py --test <device> <saved .set file>` |
+| Make scans faster | Untick **LLM** (policy engine only), or pick a smaller model in the drop-down |
+| Try a template | Policy-engine-only scan (untick **LLM**) |

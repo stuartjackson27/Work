@@ -6,8 +6,6 @@ every device against your design templates. A local LLM then reviews the same
 configs against your design docs and security baseline, behind a set of code
 filters that stop it inventing findings.
 
-![Dashboard](docs/dash.png)
-
 ## What it does
 
 | Tab | Source | What you get |
@@ -16,7 +14,10 @@ filters that stop it inventing findings.
 | **Security** | Security templates (`knowledge/templates/security`), security baseline, LLM security review | Best practice vs current gap, with a suggested fix |
 | **Config changes** | Commit history + snapshot diffs (every scan is a config backup) | What changed, who committed it, risk hints, baselines |
 
-Accept-as-exception, baselines, trends and a 50-scan retention are built in.
+Each scan can run Anomalies and/or Security, with the policy engine (templates + drift, about a minute)
+and/or the LLM (slower), using any model from `llm.allowed_models`. Parts you skip keep their last results
+behind a "Show results from scan #N" toggle. Accept-as-exception, baselines, trends and a 50-scan
+retention are built in.
 Config Check is **read-only**: it never pushes config.
 
 ## Architecture
@@ -55,18 +56,12 @@ Config Check is **read-only**: it never pushes config.
 | `knowledge/design/` | `HLD-evpn-fabric.md`, the design the Anomalies tab checks against |
 | `knowledge/security/` | `SEC-baseline-junos.md`, the security baseline (draft; edit to your standard) |
 | `knowledge/templates/` | `base/`, `infra/`, `services/`, `security/` rule templates |
-| `knowledge/archive/` | Retired QinQ edge design (not loaded) |
 | `mcp/policy/` | `block.cfg` (deny all config loads) and `block.cmd` (show-only) |
-| `scripts/` | `deploy.sh` (full VM bootstrap), `setup.sh` (keys, token, containers), `gen_devices.py` (inventory → MCP devices.json), `check_knowledge.py` (validate edits) |
-| `deploy/terraform/` | Proxmox VM + cloud-init → running Config Check in one apply |
+| `scripts/` | `setup.sh` (keys, token, containers), `gen_devices.py` (inventory → MCP devices.json) |
 | `lab/` | EVE-NG EVPN-VXLAN fabric configs (2 spines, 2 leaves) and the Spine_1 restore file |
-| `docs/` | **[Operator guide](docs/OPERATOR-GUIDE.md)** (devices, roles, knowledge, settings, keys), device prep, hardening list, deck |
+| `docs/` | **[Operator guide](docs/OPERATOR-GUIDE.md)** (devices, roles, knowledge, settings, keys), device prep, hardening list |
 
 ## Rebuild from scratch
-
-**Fastest:** `deploy/terraform` creates the VM on Proxmox and installs everything with one
-`terraform apply` ([guide](deploy/terraform/README.md)). On a VM you've already built (Ubuntu or AlmaLinux), run
-`sudo REPO_URL=... bash scripts/deploy.sh` instead; it detects the distro. The manual steps below are what those automate.
 
 
 Supported OS: **Ubuntu 22.04/24.04** or **AlmaLinux / Rocky / RHEL 9–10**. Spec: 2 vCPU, 4 GB RAM, 32 GB disk,
@@ -87,7 +82,7 @@ on a network that can reach the devices' management IPs and the Ollama host.
 ```bash
 sudo firewall-cmd --permanent --add-port=8080/tcp && sudo firewall-cmd --reload
 ```
-SELinux can stay **Enforcing**, but the volumes in `docker-compose.yml` need `:z` labels (`deploy.sh` adds them for you):
+SELinux can stay **Enforcing**, but the volumes in `docker-compose.yml` need `:z` labels:
 ```bash
 sed -i -E 's#^(\s+- \./[^ ]+:ro)$#\1,z#; s#^(\s+- \./data:[^ :]+)$#\1:z#' docker-compose.yml
 ```
@@ -98,7 +93,8 @@ Set `OLLAMA_HOST=0.0.0.0` and firewall it to the VM's IP. Put its URL in `config
 **4. Clone and set up**
 ```bash
 sudo mkdir -p /opt/config-check && sudo chown $USER: /opt/config-check
-git clone git@github.com:stuartjackson27/config-check.git /opt/config-check   # private repo: deploy key or gh auth
+git clone --depth 1 https://github.com/stuartjackson27/Work.git /tmp/work
+cp -r "/tmp/work/Config Check/." /opt/config-check/ && rm -rf /tmp/work
 cd /opt/config-check && ./scripts/setup.sh
 ```
 `setup.sh` clones the MCP server, creates the device SSH key, generates `devices.json` and the MCP token,
@@ -123,7 +119,7 @@ Secrets (`secrets/`) and runtime data (`data/`) are git-ignored and must never b
 
 This repo was published on 6 Nov 2026 after the Proxmox host failed. Code, templates, docs and the dashboard
 are the exact files that were running. The original VM came back on 13 Nov 2026, and `docker-compose.yml`,
-`config/settings.yaml`, `mcp/policy/block.cmd` / `block.cfg` and the `tests/mcp_*.py` scripts were then copied
+`config/settings.yaml` and `mcp/policy/block.cmd` / `block.cfg` were then copied
 from it, replacing the reconstructions published on 6 Nov.
 The scan history (SQLite DB and config backups in `data/`) was on the VM and is not in git.
 
