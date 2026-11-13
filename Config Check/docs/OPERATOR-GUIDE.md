@@ -307,7 +307,7 @@ ssh-keygen -t ed25519 -N "" -C "configcheck@config-check" -f secrets/configcheck
 # add secrets/configcheck_ed25519.new.pub to every switch, then:
 mv secrets/configcheck_ed25519.new secrets/configcheck_ed25519
 mv secrets/configcheck_ed25519.new.pub secrets/configcheck_ed25519.pub
-chown 999:999 secrets/configcheck_ed25519 && chmod 600 secrets/configcheck_ed25519
+chown 1000:1000 secrets/configcheck_ed25519 && chmod 600 secrets/configcheck_ed25519
 docker compose restart junos-mcp
 # then remove the old key from the switches
 ```
@@ -317,13 +317,13 @@ docker compose restart junos-mcp
 out=$(docker run --rm -u 0 -v "$PWD/secrets:/out:z" config-check/junos-mcp:local sh -c \
   'python jmcp_token_manager.py generate --id config-check-backend && cp .tokens /out/jmcp-tokens.json')
 printf '%s' "$(echo "$out" | awk '/Token:/ {print $2}')" > secrets/jmcp-backend.token
-chown 999:999 secrets/jmcp-tokens.json && chown 1000:1000 secrets/jmcp-backend.token
+chown 1000:1000 secrets/jmcp-tokens.json secrets/jmcp-backend.token
 chmod 600 secrets/jmcp-tokens.json secrets/jmcp-backend.token
 docker compose restart junos-mcp backend
 ```
 
-File ownership matters: the MCP server runs as UID **999** (token list, SSH key) and the backend as
-UID **1000** (its token, `data/`).
+File ownership matters: both containers run as UID **1000** (`user: "1000:1000"` in `docker-compose.yml`),
+so everything in `secrets/` and `data/` must be owned by 1000.
 
 **MCP policy** (`mcp/policy/block.cmd` / `block.cfg`). These are regexes for commands and config
 loads the MCP server refuses. Config Check only needs `show`; `block.cfg` refuses every config load.

@@ -73,7 +73,7 @@ if [ "$OS" = rhel ]; then
     firewall-cmd -q --permanent --add-port=8080/tcp && firewall-cmd -q --reload
     echo "   firewalld: opened 8080/tcp"
   fi
-  echo "   SELinux: $(getenforce 2>/dev/null || echo n/a) (compose volumes carry :z labels)"
+  echo "   SELinux: $(getenforce 2>/dev/null || echo n/a)"
 fi
 usermod -aG docker "$APP_USER"
 
@@ -95,6 +95,10 @@ else
   git clone -q --branch "$REPO_REF" "$REPO_URL" "$APP_DIR"
 fi
 chown -R "$APP_USER": "$APP_DIR"
+if [ "$OS" = rhel ] && [ "$(getenforce 2>/dev/null)" = Enforcing ]; then
+  sed -i -E 's#^(\s+- \./[^ ]+:ro)$#\1,z#; s#^(\s+- \./data:[^ :]+)$#\1:z#' "$APP_DIR/docker-compose.yml"
+  echo "   SELinux Enforcing: added :z labels to the docker-compose.yml volumes"
+fi
 
 log "4/7 Settings"
 S="$APP_DIR/config/settings.yaml"

@@ -87,7 +87,10 @@ on a network that can reach the devices' management IPs and the Ollama host.
 ```bash
 sudo firewall-cmd --permanent --add-port=8080/tcp && sudo firewall-cmd --reload
 ```
-SELinux can stay **Enforcing**: every volume in `docker-compose.yml` carries a `:z` label (ignored on Ubuntu).
+SELinux can stay **Enforcing**, but the volumes in `docker-compose.yml` need `:z` labels (`deploy.sh` adds them for you):
+```bash
+sed -i -E 's#^(\s+- \./[^ ]+:ro)$#\1,z#; s#^(\s+- \./data:[^ :]+)$#\1:z#' docker-compose.yml
+```
 
 **3. Ollama** (GPU host): install it, then `ollama pull deepseek-r1:14b` and `ollama pull nomic-embed-text`.
 Set `OLLAMA_HOST=0.0.0.0` and firewall it to the VM's IP. Put its URL in `config/settings.yaml` → `llm.base_url`.
@@ -109,7 +112,7 @@ and starts the stack.
 
 | Symptom | Fix |
 |---|---|
-| Container logs show `Permission denied` on `/opt/config-check/...` | SELinux label missing: check the `:z` on that volume, then `docker compose up -d` |
+| Container logs show `Permission denied` on `/opt/config-check/...` | SELinux label missing: add the `:z` labels (step 2), then `docker compose up -d` |
 | Dashboard not reachable from your PC | `sudo firewall-cmd --list-ports` should include `8080/tcp` |
 | `dnf install docker-ce` conflicts | Remove `podman-docker podman buildah runc` first (step 1) |
 | Backend can't write `data/` | `sudo chown -R 1000:1000 /opt/config-check/data` |
@@ -119,9 +122,9 @@ Secrets (`secrets/`) and runtime data (`data/`) are git-ignored and must never b
 ## Notes on this repository
 
 This repo was published on 6 Nov 2026 after the Proxmox host failed. Code, templates, docs and the dashboard
-are the exact files that were running. Two files only existed on the VM and were **reconstructed**:
-`docker-compose.yml` (same services, mounts and ports, using the upstream MCP server's documented flags) and
-`mcp/policy/block.cmd` / `block.cfg` (same intent: no config loads, `show` only). Check them on the first start.
+are the exact files that were running. The original VM came back on 13 Nov 2026, and `docker-compose.yml`,
+`config/settings.yaml`, `mcp/policy/block.cmd` / `block.cfg` and the `tests/mcp_*.py` scripts were then copied
+from it, replacing the reconstructions published on 6 Nov.
 The scan history (SQLite DB and config backups in `data/`) was on the VM and is not in git.
 
 ## Open items

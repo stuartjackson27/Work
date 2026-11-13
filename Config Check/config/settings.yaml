@@ -8,7 +8,7 @@ mcp:
 llm:
   enabled: true
   base_url: http://192.168.1.232:11434
-  model: deepseek-r1:14b   # best of qwen3.5:9b, deepseek-r1:14b, gpt-oss:20b on an RTX 3060 (Nov 2026 tests)
+  model: deepseek-r1:14b
   embed_model: nomic-embed-text
   # Local models only. Anything not listed here is refused (keeps :cloud models out).
   allowed_models: [qwen3.5:9b, deepseek-r1:14b, deepseek-r1:8b, gpt-oss:20b, gemma4:e4b]
