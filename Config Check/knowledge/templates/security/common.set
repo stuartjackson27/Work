@@ -1,111 +1,223 @@
 # Security baseline checks for every Junos device (Security tab).
-# Reference: knowledge/security/SEC-baseline-junos.md
+# Reference: knowledge/security/SEC-baseline-junos.md, based on
+# "This Week: Hardening Junos Devices, 2nd Edition" and its checklist (chapters noted in @doc).
+# Only items with a definite answer in the config are here; judgement items (filter content,
+# least-privilege classes, LLDP scope, unused ports) are left to the LLM security review.
 # Syntax: see knowledge/README.md. @practice is the best-practice text shown on the dashboard.
 
-# @id SEC-CLEARTEXT @sev 5 @title "Clear-text management service enabled" @doc "SEC-baseline-junos §2.2"
+# ---------------------------------------------------------------- physical / console (Ch. 2)
+
+# @id SEC-CONSOLE @sev 2 @title "Console session not logged out on disconnect" @doc "SEC-baseline §3.1 · Hardening Junos Ch. 2"
+# @practice "Log the console session out when the cable is unplugged so the next person does not inherit it: set system ports console log-out-on-disconnect."
+set system ports console log-out-on-disconnect
+
+# @id SEC-CONSOLE-INSECURE @sev 2 @title "Console port not marked insecure (root can log in on console)" @doc "SEC-baseline §3.1 · Hardening Junos Ch. 2"
+# @practice "Mark the console insecure so root cannot log in there and password recovery needs the root password: set system ports console insecure. Confirm the root password is known first."
+set system ports console insecure
+
+# ---------------------------------------------------------------- network / IP stack (Ch. 3-4)
+
+# @id SEC-DEFAULT-ADDR @sev 2 @title "Routing-engine traffic not sourced from the loopback" @doc "SEC-baseline §4 · Hardening Junos Ch. 4"
+# @practice "Source NTP, SNMP, syslog and AAA traffic from the loopback: set system default-address-selection."
+set system default-address-selection
+
+# @id SEC-REDIRECTS @sev 2 @title "ICMP redirects not disabled" @doc "SEC-baseline §4 · Hardening Junos Ch. 4"
+# @practice "Disable ICMP redirects globally: set system no-redirects."
+set system no-redirects
+
+# @id SEC-SOURCE-ROUTE @sev 3 @title "IP source routing enabled" @doc "SEC-baseline §4 · Hardening Junos Ch. 3"
+# @practice "Do not enable IP source routing (off by default since Junos 8.5)."
+!set routing-options source-routing{{*}}
+
+# @id SEC-DIRECTED-BCAST @sev 3 @title "IP directed broadcast enabled on an interface" @doc "SEC-baseline §4 · Hardening Junos Ch. 3"
+# @practice "Do not enable targeted (directed) broadcast on interfaces (off by default)."
+!set interfaces {{*}} targeted-broadcast{{*}}
+
+# @id SEC-PROXY-ARP @sev 2 @title "Unrestricted proxy ARP configured" @doc "SEC-baseline §4 · Hardening Junos Ch. 3"
+# @practice "Do not configure proxy ARP; if it is needed, restrict it to the interfaces that need it and never use proxy-arp unrestricted."
+!set interfaces {{*}} proxy-arp unrestricted
+
+# @id SEC-SYNFIN @sev 2 @title "TCP packets with SYN and FIN set are not dropped" @doc "SEC-baseline §4 · Hardening Junos Ch. 4"
+# @practice "Drop TCP packets with both SYN and FIN set: set system internet-options tcp-drop-synfin-set."
+set system internet-options tcp-drop-synfin-set
+
+# @id SEC-PING-OPTS @sev 1 @title "Ping record-route / timestamp answered" @doc "SEC-baseline §4 · Hardening Junos Ch. 4"
+# @practice "Do not answer ping record-route or timestamp requests: set system no-ping-record-route and set system no-ping-time-stamp."
+set system no-ping-record-route
+set system no-ping-time-stamp
+
+# @id SEC-SOURCE-QUENCH @sev 1 @title "ICMP source quench not ignored" @doc "SEC-baseline §4 · Hardening Junos Ch. 4"
+# @practice "Ignore ICMP source quench: set system internet-options no-source-quench."
+set system internet-options no-source-quench
+
+# @id SEC-ICMP-RATE @sev 2 @title "ICMP to the routing engine not rate limited" @doc "SEC-baseline §4"
+# @practice "Rate limit ICMP to the routing engine (suggested: set system internet-options icmpv4-rate-limit packet-rate 1000)."
+set system internet-options icmpv4-rate-limit {{*}}
+
+# @id SEC-DDOS @sev 4 @title "Host-bound DDoS protection disabled" @doc "SEC-baseline §4"
+# @practice "Leave host-bound DDoS protection enabled."
+!set system ddos-protection global disable-routing-engine{{*}}
+!set system ddos-protection global disable-fpc{{*}}
+
+# ---------------------------------------------------------------- management services (Ch. 4)
+
+# @id SEC-NTP @sev 3 @title "Fewer than two NTP servers" @doc "SEC-baseline §5.1 · Hardening Junos Ch. 4"
+# @practice "Configure at least two NTP servers, preferably in different locations."
+set system ntp server {{ntp1}}{{*}}
+set system ntp server {{ntp2}}{{*}}
+
+# @id SEC-NTP-AUTH @sev 2 @title "NTP not authenticated" @doc "SEC-baseline §5.1 · Hardening Junos Ch. 4"
+# @practice "Authenticate NTP: an authentication-key (sha256 where supported), the key in trusted-key, and key <n> on every server, so time cannot be spoofed."
+set system ntp authentication-key {{*}}
+set system ntp trusted-key {{*}}
+set system ntp server {{ntp1}} key {{*}}
+set system ntp server {{ntp2}} key {{*}}
+
+# @id SEC-SNMP-RW @sev 5 @title "SNMP community with write access" @doc "SEC-baseline §5.2 · Hardening Junos Ch. 4"
+# @practice "Never configure a read-write SNMP community."
+!set snmp community {{*}} authorization read-write
+
+# @id SEC-SNMP-COMMUNITY @sev 3 @title "SNMPv1/v2c community configured" @doc "SEC-baseline §5.2 · Hardening Junos Ch. 4"
+# @practice "Use SNMPv3 with authentication and privacy (SHA, AES). If a community must stay, make it read-only, hard to guess and limited to named collectors with clients/client-list-name ending in 0.0.0.0/0 restrict."
+!set snmp community {{*}}
+
+# @id SEC-SYSLOG-REMOTE @sev 3 @title "Fewer than two remote syslog hosts" @doc "SEC-baseline §5.3 · Hardening Junos Ch. 4"
+# @practice "Send logs to at least two remote syslog hosts."
+# @builtin syslog_hosts
+
+# @id SEC-SYSLOG-TIME @sev 1 @title "Syslog without enhanced timestamps" @doc "SEC-baseline §5.3 · Hardening Junos Ch. 4"
+# @practice "Include the year and milliseconds in syslog timestamps: set system syslog time-format year and time-format millisecond."
+set system syslog time-format year
+set system syslog time-format millisecond
+
+# @id SEC-SYSLOG-AUDIT @sev 2 @title "Audit logging incomplete (commands / authorisation)" @doc "SEC-baseline §5.3"
+# @practice "Log interactive commands and authorisation events."
+set system syslog file interactive-commands interactive-commands any
+set system syslog file messages authorization info
+
+# @id SEC-ARCHIVAL @sev 2 @title "No automatic off-box configuration backup" @doc "SEC-baseline §5.4 · Hardening Junos Ch. 4"
+# @practice "Archive the configuration on every commit to secure off-box sites: set system archival configuration transfer-on-commit and archive-sites scp://... (two sites preferred)."
+set system archival configuration transfer-on-commit
+set system archival configuration archive-sites {{*}}
+
+# ---------------------------------------------------------------- access services (Ch. 4)
+
+# @id SEC-BANNER @sev 2 @title "Warning banner missing" @doc "SEC-baseline §6.1 · Hardening Junos Ch. 4"
+# @practice "Display a warning banner before login stating that unauthorised use is prohibited, with a contact."
+set system login message {{*}}
+
+# @id SEC-CLEARTEXT @sev 5 @title "Clear-text management service enabled" @doc "SEC-baseline §6.1 · Hardening Junos Ch. 4"
 # @practice "Never enable telnet, ftp, finger, rlogin, web-management http or xnm-clear-text. All management is over SSH/HTTPS."
 !set system services telnet{{*}}
 !set system services ftp{{*}}
 !set system services finger{{*}}
 !set system services rlogin{{*}}
-!set system services web-management http{{*}}
+!set system services web-management http
+!set system services web-management http {{*}}
 !set system services xnm-clear-text{{*}}
 
-# @id SEC-SSH-ROOT @sev 4 @title "Root login over SSH is allowed" @doc "SEC-baseline-junos §2.1"
-# @practice "Deny root login over SSH. Operators use named accounts; root is console-only."
+# @id SEC-SSH-ROOT @sev 4 @title "Root login over SSH is allowed" @doc "SEC-baseline §6.2 · Hardening Junos Ch. 4"
+# @practice "Deny root login over SSH: set system services ssh root-login deny. Operators use named accounts."
 set system services ssh root-login deny
 
-# @id SEC-SSH-V2 @sev 4 @title "SSH not restricted to protocol v2" @doc "SEC-baseline-junos §2.1"
+# @id SEC-SSH-V2 @sev 2 @title "SSH not restricted to protocol v2" @doc "SEC-baseline §6.2 · Hardening Junos Ch. 4"
 # @practice "SSH protocol version 2 only."
 set system services ssh protocol-version v2
 
-# @id SEC-SSH-LIMITS @sev 3 @title "No SSH connection or rate limit" @doc "SEC-baseline-junos §2.1"
+# @id SEC-SSH-LIMITS @sev 3 @title "No SSH connection or rate limit" @doc "SEC-baseline §6.2 · Hardening Junos Ch. 4"
 # @practice "Set SSH connection-limit and rate-limit to slow brute force and protect the routing engine (suggested: connection-limit 10, rate-limit 5 per minute)."
 set system services ssh connection-limit {{*}}
 set system services ssh rate-limit {{*}}
 
-# @id SEC-SSH-CIPHERS @sev 2 @title "SSH algorithms not restricted to strong ciphers" @doc "SEC-baseline-junos §2.1"
-# @practice "Restrict SSH to strong algorithms, e.g. ciphers [ aes256-gcm@openssh.com chacha20-poly1305@openssh.com aes256-ctr ], macs [ hmac-sha2-512 hmac-sha2-256 ], key-exchange [ curve25519-sha256 ecdh-sha2-nistp384 ]."
+# @id SEC-SSH-CIPHERS @sev 2 @title "SSH algorithms not restricted to strong ciphers" @doc "SEC-baseline §6.2 · Hardening Junos Ch. 4"
+# @practice "Restrict SSH to strong algorithms, e.g. ciphers [ aes256-gcm@openssh.com chacha20-poly1305@openssh.com aes256-ctr ], macs [ hmac-sha2-512 hmac-sha2-256 ], key-exchange [ curve25519-sha256 ecdh-sha2-nistp384 ]. Avoid the CBC ciphers and hmac-sha1 listed in the book."
 set system services ssh ciphers {{*}}
 set system services ssh macs {{*}}
 set system services ssh key-exchange {{*}}
 
-# @id SEC-LOGIN-RETRY @sev 3 @title "No login retry or lockout limits" @doc "SEC-baseline-junos §2.3"
-# @practice "Disconnect after a few failed logins and lock out for a period (suggested: tries-before-disconnect 3, lockout-period 5 minutes)."
-set system login retry-options tries-before-disconnect {{*}}
-set system login retry-options lockout-period {{*}}
+# @id SEC-NETCONF-LIMITS @sev 2 @title "No NETCONF connection or rate limit" @doc "SEC-baseline §6.2 · Hardening Junos Ch. 4"
+# @practice "Limit NETCONF over SSH too (suggested: connection-limit 10, rate-limit 20). Keep rate-limit at 10 or more per minute or Config Check scans can fail."
+# @scope ^set system services netconf ssh
+set system services netconf ssh connection-limit {{*}}
+set system services netconf ssh rate-limit {{*}}
 
-# @id SEC-PASSWORD-LEN @sev 2 @title "No minimum password length enforced" @doc "SEC-baseline-junos §2.3"
-# @practice "Enforce a minimum password length of at least 12 characters."
+# @id SEC-JWEB @sev 2 @title "J-Web not limited (interfaces, idle timeout, sessions)" @doc "SEC-baseline §6.3 · Hardening Junos Ch. 4"
+# @practice "If J-Web is used: HTTPS only with a CA-signed certificate, listening on authorised interfaces only, with an idle timeout and a session limit."
+# @scope ^set system services web-management https
+set system services web-management https interface {{*}}
+set system services web-management session idle-timeout {{*}}
+set system services web-management session session-limit {{*}}
+
+# ---------------------------------------------------------------- user authentication (Ch. 4)
+
+# @id SEC-PASSWORD-LEN @sev 2 @title "No minimum password length enforced" @doc "SEC-baseline §7.1 · Hardening Junos Ch. 4"
+# @practice "Enforce a minimum password length of at least 12 characters (the book uses 15)."
 set system login password minimum-length {{*}}
 
-# @id SEC-BANNER @sev 1 @title "Legal login banner missing" @doc "SEC-baseline-junos §2.3"
-# @practice "Display a legal login banner on every device."
-set system login message {{*}}
+# @id SEC-PASSWORD-COMPLEXITY @sev 2 @title "Password complexity not enforced" @doc "SEC-baseline §7.1 · Hardening Junos Ch. 4"
+# @practice "Require upper case, lower case, numeric and punctuation characters: change-type character-sets with minimum-upper-cases, minimum-lower-cases, minimum-numerics and minimum-punctuations."
+set system login password change-type character-sets
+set system login password minimum-upper-cases {{*}}
+set system login password minimum-lower-cases {{*}}
+set system login password minimum-numerics {{*}}
+set system login password minimum-punctuations {{*}}
 
-# @id SEC-CONSOLE @sev 2 @title "Console session not logged out on disconnect" @doc "SEC-baseline-junos §2.3"
-# @practice "Log the console session out when the cable is disconnected so the next person does not inherit it."
-set system ports console log-out-on-disconnect
+# @id SEC-PASSWORD-FORMAT @sev 2 @title "Passwords not stored with SHA-512" @doc "SEC-baseline §7.1 §12 · Hardening Junos Ch. 4"
+# @practice "Store passwords with a strong hash: set system login password format sha512 (the book's sha1 is outdated)."
+set system login password format sha512
 
-# @id SEC-AAA @sev 3 @title "No central AAA (TACACS+/RADIUS)" @doc "SEC-baseline-junos §2.4"
-# @practice "Authenticate operators against central TACACS+ or RADIUS with local fallback only (e.g. authentication-order [ tacplus password ])."
-set system authentication-order {{*}}
-
-# @id SEC-ROOT-AUTH @sev 3 @title "No root password for console recovery" @doc "SEC-baseline-junos §2.4"
-# @practice "Set a root password for console recovery."
+# @id SEC-ROOT-AUTH @sev 3 @title "No root password" @doc "SEC-baseline §7.1 · Hardening Junos Ch. 4"
+# @practice "Set a strong root password for console recovery."
 set system root-authentication {{*}}
 
-# @id SEC-RO-CLASS @sev 4 @title "Read-only login class has elevated permissions" @doc "SEC-baseline-junos §2.4"
-# @practice "Automation classes keep the minimum permissions; read-only classes never include all, secret, maintenance, shell or configure."
-!set system login class {{*}} permissions all
-!set system login class {{*}} permissions secret
-!set system login class {{*}} permissions shell
+# @id SEC-LOGIN-RETRY @sev 3 @title "No login retry, back-off or lockout limits" @doc "SEC-baseline §7.2 · Hardening Junos Ch. 4"
+# @practice "Slow and lock out password guessing (suggested: tries-before-disconnect 3, backoff-threshold 1, backoff-factor 6, lockout-period 10)."
+set system login retry-options tries-before-disconnect {{*}}
+set system login retry-options backoff-threshold {{*}}
+set system login retry-options backoff-factor {{*}}
+set system login retry-options lockout-period {{*}}
 
-# @id SEC-LO0-FILTER @sev 4 @title "No loopback protection filter (routing engine unprotected)" @doc "SEC-baseline-junos §3.1"
-# @practice "Apply an input filter on lo0 unit 0 family inet (e.g. PROTECT-RE) that permits only required protocols from known sources (BGP peers, BFD, SSH/NETCONF from management prefixes, NTP, rate-limited ICMP) and ends with a term that discards and counts everything else."
-set interfaces lo0 unit 0 family inet filter input {{*}}
+# @id SEC-LOGIN-IDLE @sev 2 @title "Login class without an idle timeout" @doc "SEC-baseline §7.3 · Hardening Junos Ch. 4"
+# @practice "Give every login class an idle timeout (e.g. 10-20 minutes)."
+# @scope ^set system login class (?P<cls>\S+)
+set system login class {{cls}} idle-timeout {{*}}
 
-# @id SEC-REDIRECTS @sev 2 @title "ICMP redirects not disabled" @doc "SEC-baseline-junos §3.2"
-# @practice "Disable ICMP redirects."
-set system no-redirects
+# @id SEC-RO-CLASS @sev 4 @title "Automation login class (cc-ro) has elevated permissions" @doc "SEC-baseline §7.3"
+# @practice "The read-only automation class keeps view and view-configuration only; never all, secret, shell, maintenance or configure."
+!set system login class cc-ro permissions all
+!set system login class cc-ro permissions secret
+!set system login class cc-ro permissions shell
+!set system login class cc-ro permissions maintenance
+!set system login class cc-ro permissions configure
 
-# @id SEC-ICMP-RATE @sev 2 @title "ICMP to the routing engine not rate limited" @doc "SEC-baseline-junos §3.2"
-# @practice "Rate limit ICMP to the routing engine (suggested: icmpv4-rate-limit packet-rate 1000)."
-set system internet-options icmpv4-rate-limit {{*}}
+# @id SEC-AAA @sev 3 @title "No central AAA (TACACS+/RADIUS)" @doc "SEC-baseline §7.4 · Hardening Junos Ch. 4"
+# @practice "Authenticate operators against two or more TACACS+ or RADIUS servers with local passwords as fallback only, e.g. authentication-order [ tacplus password ]."
+set system authentication-order {{*}}
 
-# @id SEC-PING-OPTS @sev 1 @title "Ping record-route / timestamp answered" @doc "SEC-baseline-junos §3.2"
-# @practice "Do not answer ping record-route or timestamp options."
-set system no-ping-record-route
-set system no-ping-time-stamp
+# @id SEC-ACCOUNTING @sev 3 @title "No accounting of logins, changes and commands" @doc "SEC-baseline §7.4 · Hardening Junos Ch. 4"
+# @practice "Send accounting to the AAA servers: set system accounting events [ login change-log interactive-commands ] with an accounting destination."
+set system accounting events {{*}}
+set system accounting destination {{*}}
 
-# @id SEC-DDOS @sev 4 @title "Host-bound DDoS protection disabled" @doc "SEC-baseline-junos §3.2"
-# @practice "Leave host-bound DDoS protection enabled."
-!set system ddos-protection global disable-routing-engine{{*}}
-!set system ddos-protection global disable-fpc{{*}}
+# ---------------------------------------------------------------- routing protocols (Ch. 4)
 
-# @id SEC-BGP-AUTH @sev 3 @title "BGP sessions without authentication" @doc "SEC-baseline-junos §4.1"
-# @practice "Authenticate every BGP session with an authentication key or key chain."
+# @id SEC-BGP-AUTH @sev 3 @title "BGP sessions without authentication" @doc "SEC-baseline §8 · Hardening Junos Ch. 4"
+# @practice "Authenticate every BGP session with an authentication key or key chain, using separate keys per organisation."
 # @builtin bgp_auth
 
-# @id SEC-SNMP-COMMUNITY @sev 4 @title "SNMPv1/v2c community configured" @doc "SEC-baseline-junos §5"
-# @practice "Use SNMPv3 authPriv only. No v1/v2c communities."
-!set snmp community {{*}}
+# @id SEC-BGP-LOCAL-ADDR @sev 2 @title "Loopback BGP session not sourced from the loopback" @doc "SEC-baseline §8 · Hardening Junos Ch. 4"
+# @practice "Internal and multihop BGP groups set local-address to the loopback."
+# @scope ^set protocols bgp group (?P<grp>\S+) (?:type internal|multihop)
+set protocols bgp group {{grp}} local-address {{*}}
 
-# @id SEC-NTP @sev 3 @title "Fewer than two NTP servers" @doc "SEC-baseline-junos §6"
-# @practice "Configure at least two NTP servers."
-set system ntp server {{ntp1}}
-set system ntp server {{ntp2}}
+# ---------------------------------------------------------------- RE filter (Ch. 4)
 
-# @id SEC-NTP-AUTH @sev 2 @title "NTP not authenticated" @doc "SEC-baseline-junos §6"
-# @practice "Use NTP authentication keys (sha256) and trusted-key, and reference the key on each server, so time cannot be spoofed."
-set system ntp authentication-key {{*}}
-set system ntp trusted-key {{*}}
+# @id SEC-LO0-FILTER @sev 4 @title "No routing-engine protection filter" @doc "SEC-baseline §9 · Hardening Junos Ch. 4"
+# @practice "Apply a default-deny input filter on lo0 unit 0 family inet: permit only required protocols from authorised prefix lists, rate-limit with policers, put BGP/BFD/IGP terms first, and end with a term that logs, syslogs and discards everything else."
+set interfaces lo0 unit 0 family inet filter input {{*}}
 
-# @id SEC-SYSLOG-REMOTE @sev 3 @title "No remote syslog host" @doc "SEC-baseline-junos §7"
-# @practice "Send logs to at least one, preferably two, remote syslog hosts."
-set system syslog host {{*}}
+# ---------------------------------------------------------------- LLDP (Ch. 4)
 
-# @id SEC-SYSLOG-AUDIT @sev 2 @title "Audit logging incomplete (commands / authorisation)" @doc "SEC-baseline-junos §7"
-# @practice "Log interactive commands and authorisation events."
-set system syslog file interactive-commands interactive-commands any
-set system syslog file messages authorization info
+# @id SEC-LLDP-MED-ALL @sev 2 @title "LLDP-MED enabled on all interfaces" @doc "SEC-baseline §10 · Hardening Junos Ch. 4"
+# @practice "Enable LLDP-MED only on interfaces with voice or media endpoints, never on all interfaces."
+!set protocols lldp-med interface all

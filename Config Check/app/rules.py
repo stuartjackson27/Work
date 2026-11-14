@@ -428,7 +428,19 @@ def builtin_bgp_auth(b: Block, lines: list[str], dev: Device) -> list[Finding]:
                     doc=b.doc, rule_id=b.id, practice=b.practice)]
 
 
-BUILTINS = {"bgp_auth": builtin_bgp_auth,
+def builtin_syslog_hosts(b: Block, lines: list[str], dev: Device) -> list[Finding]:
+    """At least two remote syslog hosts (counts distinct hosts, which a template line can't)."""
+    hosts = sorted({l.split()[4] for l in lines if l.startswith("set system syslog host ") and len(l.split()) > 4})
+    if len(hosts) >= 2:
+        return []
+    have = f"only {hosts[0]} is configured" if hosts else "none is configured"
+    return [_f(b, dev, b.sev, b.title, "system syslog host",
+               f"Logs must go to at least two remote syslog hosts; {have}.",
+               [f"set system syslog host {h}" for h in hosts] or ["MISSING: set system syslog host <host>"],
+               ["set system syslog host <second-host> any notice"], b.id)]
+
+
+BUILTINS = {"bgp_auth": builtin_bgp_auth, "syslog_hosts": builtin_syslog_hosts,
             "vlan_name_tags": builtin_vlan_name_tags, "orphan_mclag": builtin_orphan_mclag,
             "fabric_peers": builtin_fabric_peers, "vni_mapping": builtin_vni_mapping}
 
