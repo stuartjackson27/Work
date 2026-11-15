@@ -12,19 +12,18 @@ filters that stop it inventing findings.
 |---|---|---|
 | **Anomalies** | Design templates (`knowledge/templates/base\|infra\|services`), design doc, role drift, LLM review | Deviations from the design, scored per device and role |
 | **Security** | Security templates (`knowledge/templates/security`), security baseline, LLM security review | Best practice vs current gap, with a suggested fix |
-| **Config changes** | Commit history + snapshot diffs (every scan is a config backup) | What changed, who committed it, risk hints, baselines |
 
 Each scan can run Anomalies and/or Security, with the policy engine (templates + drift, about a minute)
 and/or the LLM (slower), using any model from `llm.allowed_models`. Parts you skip keep their last results
-behind a "Show results from scan #N" toggle. Accept-as-exception, baselines, trends and a 50-scan
-retention are built in.
+behind a "Show results from scan #N" toggle. Accept-as-exception, trends and a 50-scan retention are
+built in, and every scan saves each device's config to `data/configs/<scan>/` as a backup.
 Config Check is **read-only**: it never pushes config.
 
 ## Architecture
 
 ```
  Browser ──► backend (FastAPI + dashboard, :8080) ──► Junos MCP server (:30030, localhost) ──NETCONF──► devices
-                 │  rule engine, drift, change tracking         block.cfg / block.cmd: show-only
+                 │  rule engine, drift, scan history           block.cfg / block.cmd: show-only
                  │  SQLite (data/)
                  └──► Ollama (LLM + nomic-embed-text embeddings for retrieval)
 ```

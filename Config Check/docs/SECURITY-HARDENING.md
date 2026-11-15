@@ -8,7 +8,7 @@ Status as of the PoC (Nov 2026). **P1** = must have before production, **P2** = 
 | 1.1 | HTTPS via reverse proxy (Caddy/nginx/Traefik) with an internal-CA cert | Plain HTTP :8080 | P1 |
 | 1.2 | SSO (OIDC: Entra ID / Keycloak, e.g. oauth2-proxy) | None | P1 |
 | 1.3 | Roles: viewer / operator (scan, accept exception) / admin | None | P1 |
-| 1.4 | Audit trail: who accepted an exception or pinned a baseline, with a required comment | Changes recorded, no identity | P1 |
+| 1.4 | Audit trail: who accepted an exception, with a required comment | Changes recorded, no identity | P1 |
 | 1.5 | Bind :8080 to 127.0.0.1 behind the proxy (Docker publishing bypasses ufw/iptables) | 0.0.0.0:8080 | P1 |
 | 1.6 | CSRF on POSTs; CSP/HSTS/X-Frame-Options headers | None | P2 |
 | 1.7 | Rate-limit `/api/scan` | One scan at a time | P2 |

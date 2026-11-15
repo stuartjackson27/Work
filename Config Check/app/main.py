@@ -94,17 +94,6 @@ class Decision(BaseModel):
     note: str = ""
 
 
-class Baseline(BaseModel):
-    scan_id: int | None = None   # None unpins
-    note: str = ""
-
-
-@app.post("/api/baseline/{device}")
-def pin_baseline(device: str, b: Baseline):
-    store.set_baseline(device, b.scan_id, b.note)
-    return {"ok": True}
-
-
 @app.post("/api/findings/{fingerprint}/state")
 def decide(fingerprint: str, d: Decision):
     if d.state not in ("accepted", "open"):

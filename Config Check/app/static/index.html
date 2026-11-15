@@ -145,33 +145,12 @@ pre .add{color:var(--code-add)} pre .del{color:var(--code-del)} pre .cm{color:#7
 .tabs{overflow-x:auto;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
 .tabs button{white-space:nowrap;flex:none}
-@media (max-width:560px){.tabs button{padding:8px 8px;font-size:14px;gap:5px}.tabs .risk{display:none}}
+@media (max-width:560px){.tabs button{padding:8px 8px;font-size:14px;gap:5px}}
 .tabs .cnt{font-family:var(--f-mono);font-size:11px;font-weight:500;background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:0 7px;color:var(--muted)}
-.tabs .risk{font-size:11px;padding:1px 6px 1px 3px}
-.tabs .risk i{width:15px;height:15px;font-size:10px}
 .chg .hd .opt{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:auto;margin-right:12px;cursor:pointer}
-.chg .list{display:flex;flex-direction:column}
-.crow{border-top:1px solid var(--line);padding:10px 14px;display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:6px 16px;align-items:start}
-.crow:first-child{border-top:0}
-.crow .dev{font-family:var(--f-mono);font-weight:500}
-.crow .dev small{display:block;font-family:var(--f-body);font-weight:400;font-size:11px;color:var(--muted);margin-top:2px}
-.crow .what{min-width:0}
-.crow .what .sum{max-width:80ch}
-.crow .meta2{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:4px}
-.crow .meta2 b{font-family:var(--f-mono);font-weight:500;color:var(--fg)}
-.crow .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
-.delta{font-family:var(--f-mono);font-size:12px;white-space:nowrap}
-.delta .p{color:var(--ok)} .delta .m{color:var(--sev5)}
 .risk{display:inline-flex;align-items:center;gap:6px;font-family:var(--f-mono);font-size:12px;font-weight:500;padding:2px 8px 2px 4px;border-radius:4px;background:var(--b);color:var(--c);white-space:nowrap}
 .risk i{font-style:normal;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:3px;background:var(--c);color:var(--panel);font-size:11px}
-.crow .quiet{color:var(--muted);font-size:13px}
-.cdetail{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;margin-top:6px}
-.cdetail ul{margin:6px 0 0;padding-left:18px}
-.cdetail li{margin-bottom:6px}
-.cdetail .ref{display:block;font-size:11px;color:var(--muted);font-family:var(--f-mono)}
-.pill{font-size:11px;font-family:var(--f-mono);border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:1px 7px;white-space:nowrap}
 .btn.sm{padding:3px 9px;font-size:12px}
-@media (max-width:760px){.crow{grid-template-columns:minmax(0,1fr)}.crow .acts{justify-content:flex-start}.cdetail{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body>
@@ -203,7 +182,7 @@ pre .ctx{color:#9fb0bb}
       <span>Model <b id="model">–</b></span>
       <span>Templates <b id="tpl">–</b></span>
       <span class="go"><span class="scope" role="group" aria-label="What to scan">
-        <label title="Design templates, drift, LLM design review and change reviews"><input type="checkbox" id="optA" checked> Anomalies</label>
+        <label title="Design templates, drift and the LLM design review"><input type="checkbox" id="optA" checked> Anomalies</label>
         <label title="Security templates and LLM security review"><input type="checkbox" id="optS" checked> Security</label>
         <span class="sep" aria-hidden="true"></span>
         <label title="Rule engine: templates and role drift (fast)"><input type="checkbox" id="optR" checked> Policy engine</label>
@@ -233,8 +212,7 @@ pre .ctx{color:#9fb0bb}
 
   <nav class="tabs" role="tablist" aria-label="Views">
     <button type="button" role="tab" id="tabF" aria-controls="viewF" data-tab="findings">Anomalies <span class="cnt" id="tabFCount">–</span></button>
-    <button type="button" role="tab" id="tabS" aria-controls="viewF" data-tab="security">Security <span class="cnt" id="tabSCount">–</span><span id="tabSRisk"></span></button>
-    <button type="button" role="tab" id="tabC" aria-controls="viewC" data-tab="changes">Config changes <span class="cnt" id="tabCCount">–</span><span id="tabCRisk"></span></button>
+    <button type="button" role="tab" id="tabS" aria-controls="viewF" data-tab="security">Security <span class="cnt" id="tabSCount">–</span></button>
   </nav>
 
   <main id="viewF" role="tabpanel" aria-labelledby="tabF">
@@ -272,12 +250,6 @@ pre .ctx{color:#9fb0bb}
     </section>
   </main>
 
-  <div id="viewC" role="tabpanel" aria-labelledby="tabC" hidden>
-    <section class="panel chg" aria-labelledby="cH">
-      <div class="hd"><h2 id="cH">Config changes</h2><label class="opt"><input type="checkbox" id="hideUnchanged" checked> Hide unchanged devices</label><span class="label" id="cCount"></span></div>
-      <div class="list" id="changes"></div>
-    </section>
-  </div>
 </div>
 <div class="toast" id="toast" hidden></div>
 
@@ -437,93 +409,25 @@ function detail(){
 }
 function toast(m){const t=$("toast");t.textContent=m;t.hidden=false;clearTimeout(t._t);t._t=setTimeout(()=>t.hidden=true,2600)}
 
-const RISK={5:"Critical",4:"High",3:"Review",2:"Low",1:"Cosmetic"};
-const openChg=new Set();
-function changesPanel(){
-  const box=$("changes");
-  if(!S.scan){box.innerHTML=`<div class="empty">Changes appear after the second scan.</div>`;$("cCount").textContent="";return}
-  const ch=S.changes||[]; let n=0, hidden=0; const hideU=$("hideUnchanged").checked;
-  box.innerHTML=S.inventory.map(d=>{
-    const di=devInfo(d.name); const bl=(S.baselines||{})[d.name];
-    const mine=ch.filter(c=>c.device===d.name);
-    const pinBtn=bl&&bl.scan_id===S.scan.id
-      ?`<button class="btn sm" type="button" data-unpin="${d.name}">Unpin baseline</button>`
-      :`<button class="btn sm" type="button" data-pin="${d.name}" ${di.status!=="ok"?"disabled":""}>Pin this scan as baseline</button>`;
-    const blTxt=bl?`<span class="pill" title="Pinned ${esc(bl.pinned)}">baseline #${bl.scan_id}</span>`:"";
-    const quiet=di.status!=="ok"||!mine.length;
-    if(quiet&&hideU){hidden++;return ""}
-    if(di.status!=="ok") return `<div class="crow"><div class="dev">${esc(d.name)}</div><div class="what quiet">Not collected in this scan.</div><div class="acts">${blTxt}</div></div>`;
-    const prev=mine.find(c=>c.kind==="previous"), base=mine.find(c=>c.kind==="baseline");
-    const regs=open().filter(f=>f.device===d.name&&f.state==="regressed");
-    if(!prev&&!base){
-      const lastC=((S.commits||{})[d.name]||[])[0];
-      return `<div class="crow"><div class="dev">${esc(d.name)}</div><div class="what quiet">No changes since the previous scan${bl?" or the baseline":""}.${lastC?` Last commit ${esc(fmtTime(lastC.time))} by ${esc(lastC.user)}.`:""}</div><div class="acts">${blTxt}${pinBtn}</div></div>`;
-    }
-    n++;
-    const rows=[prev,base].filter(Boolean).map(c=>changeRow(d.name,c,regs)).join("");
-    return rows.replace('<div class="acts">',`<div class="acts">${blTxt}${pinBtn}`);
-  }).join("");
-  if(!n&&!box.innerHTML.trim()) box.innerHTML=`<div class="crow"><div class="what quiet" style="grid-column:1/-1">No device changed since the previous scan${hidden?` (${hidden} unchanged hidden)`:""}.</div></div>`;
-  $("cCount").textContent=(n?`${n} device${n>1?"s":""} changed`:"no changes")+(hidden&&n?` · ${hidden} unchanged hidden`:"");
-  const risks=ch.map(c=>(c.review&&c.review.risk)||Math.max(1,...(c.hints||[]).map(h=>h.risk)));
-  const top=risks.length?Math.max(...risks):0;
-  $("tabCCount").textContent=n;
-  $("tabCRisk").innerHTML=top>=3?`<span class="risk" title="Highest change risk" style="--c:var(--sev${top});--b:var(--sev${top}-bg)"><i>${top}</i>${RISK[top]}</span>`:"";
-}
-const TABS={findings:"tabF",security:"tabS",changes:"tabC"}, ORDER=Object.keys(TABS);
+const TABS={findings:"tabF",security:"tabS"}, ORDER=Object.keys(TABS);
 function tabCounts(){
   if(!S) return;
   $("tabFCount").textContent=openIn(false).length;
-  const so=openIn(true); $("tabSCount").textContent=so.length;
-  const top=Math.max(0,...so.map(f=>f.severity));
-  $("tabSRisk").innerHTML=top>=4?`<span class="risk" title="Worst open security finding" style="--c:var(--sev${top});--b:var(--sev${top}-bg)"><i>${top}</i>${SEV[top]}</span>`:"";
+  $("tabSCount").textContent=openIn(true).length;
 }
 function showTab(t,save){
   if(!TABS[t]) t="findings";
   const changed=st.view!==t; st.view=t;
-  $("viewF").hidden=t==="changes"; $("viewC").hidden=t!=="changes";
   for(const [k,id] of Object.entries(TABS)){$(id).setAttribute("aria-selected",k===t);$(id).tabIndex=k===t?0:-1}
   if(save){try{localStorage.setItem("cc.tab",t)}catch(e){} history.replaceState(null,"",t==="findings"?location.pathname+location.search:"#"+t)}
-  if(changed&&S){st.sel=null;st.cat="";$("cat").value="";if(t!=="changes")render();}
+  if(changed&&S){st.sel=null;st.cat="";$("cat").value="";render();}
 }
 document.querySelector(".tabs").addEventListener("click",e=>{const b=e.target.closest("[data-tab]");if(b)showTab(b.dataset.tab,true)});
 document.querySelector(".tabs").addEventListener("keydown",e=>{if(e.key==="ArrowRight"||e.key==="ArrowLeft"){const i=ORDER.indexOf(st.view),t=ORDER[(i+(e.key==="ArrowRight"?1:ORDER.length-1))%ORDER.length];showTab(t,true);$(TABS[t]).focus()}});
-$("hideUnchanged").addEventListener("change",()=>{try{localStorage.setItem("cc.hideUnchanged",$("hideUnchanged").checked?"1":"0")}catch(e){} changesPanel()});
-(()=>{let t=({"#changes":"changes","#security":"security"})[location.hash]||"findings";
-  try{if(!location.hash)t=localStorage.getItem("cc.tab")||t; const h=localStorage.getItem("cc.hideUnchanged"); if(h!==null)$("hideUnchanged").checked=h==="1"}catch(e){}
+(()=>{let t=({"#security":"security"})[location.hash]||"findings";
+  try{if(!location.hash)t=localStorage.getItem("cc.tab")||t}catch(e){}
   showTab(t,false)})();
-function changeRow(dev,c,regs){
-  const key=`${dev}:${c.kind}`; const r=c.review||{}; const risk=r.risk||Math.max(1,...(c.hints||[]).map(h=>h.risk));
-  const who=(c.commits||[]).map(x=>`${esc(x.user)} ${esc(fmtTime(x.time))}${x.comment?` “${esc(x.comment)}”`:""}`).join(", ");
-  const label=c.kind==="previous"?`since scan #${c.base_scan_id}`:`vs baseline #${c.base_scan_id}`;
-  const sum=r.summary?esc(r.summary):(c.kind==="baseline"?"Drift from the pinned baseline.":(r.error?`LLM review failed: ${esc(r.error)}`:"Not reviewed by the LLM."));
-  const isOpen=openChg.has(key);
-  const diff=[...c.added.map(l=>`<span class="add">+ ${esc(l)}</span>`),...c.removed.map(l=>`<span class="del">- ${esc(l)}</span>`)].join("\n");
-  const concerns=[...(c.hints||[]).map(h=>({t:h.reason,s:h.risk,ref:"rule",lines:h.lines})),...((r.concerns)||[]).map(x=>({t:x.text,s:x.severity,ref:"LLM · "+x.ref,lines:x.lines}))];
-  return `<div class="crow">
-    <div class="dev">${esc(dev)}<small>${label}</small></div>
-    <div class="what">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="risk" style="--c:var(--sev${risk});--b:var(--sev${risk}-bg)"><i>${risk}</i>${RISK[risk]}</span>
-        <span class="delta"><span class="p">+${c.added.length}</span> / <span class="m">−${c.removed.length}</span></span>
-        ${r.intent?`<span class="quiet">${esc(r.intent)}</span>`:""}</div>
-      <div class="sum" style="margin-top:6px">${sum}</div>
-      <div class="meta2"><span>Sections <b>${esc(Object.keys(c.sections||{}).join(", "))}</b></span>${who?`<span>Commits <b>${who}</b></span>`:(c.kind==="previous"?`<span>Commits <b>none recorded in window</b></span>`:"")}${regs.length&&c.kind==="previous"?`<span>Regressed findings <b style="color:var(--sev5)">${regs.length}</b></span>`:""}</div>
-    </div>
-    <div class="acts"><button class="btn sm" type="button" data-toggle="${key}" aria-expanded="${isOpen}">${isOpen?"Hide diff":"Show diff"}</button></div>
-    ${isOpen?`<div class="cdetail"><div><span class="label">Diff</span><pre>${diff}</pre></div>
-      <div><span class="label">Concerns</span>${concerns.length?`<ul>${concerns.map(x=>`<li><span class="risk" style="--c:var(--sev${x.s});--b:var(--sev${x.s}-bg)"><i>${x.s}</i>${RISK[x.s]}</span> ${esc(x.t)}<span class="ref">${esc(x.ref)} · ${esc(x.lines.join(" | "))}</span></li>`).join("")}</ul>`:`<p class="quiet">None found.</p>`}
-      ${regs.length&&c.kind==="previous"?`<span class="label">Regressed findings</span><ul>${regs.map(f=>`<li>${esc(f.title)}</li>`).join("")}</ul>`:""}</div></div>`:""}
-  </div>`;
-}
-$("changes").addEventListener("click",async e=>{
-  const t=e.target.closest("button"); if(!t)return;
-  if(t.dataset.toggle){const k=t.dataset.toggle; openChg.has(k)?openChg.delete(k):openChg.add(k); changesPanel(); return}
-  const dev=t.dataset.pin||t.dataset.unpin; if(!dev)return;
-  try{await api(`/api/baseline/${dev}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({scan_id:t.dataset.pin?S.scan.id:null})});
-    toast(t.dataset.pin?`Scan #${S.scan.id} pinned as ${dev} baseline. Future scans show drift from it.`:`Baseline unpinned for ${dev}`); load();}
-  catch(err){toast("Could not save: "+err.message)}
-});
-function render(){header();summary();changesPanel();roles();rows()}
+function render(){header();summary();roles();rows()}
 
 let polling=false;
 async function poll(){

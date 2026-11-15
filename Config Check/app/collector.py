@@ -45,10 +45,6 @@ class MCPCollector:
             raise RuntimeError(f"no set-format configuration returned: {text[:200]}")
         return lines
 
-    async def commits(self, device: str) -> str:
-        return await self._call("execute_junos_command",
-                                {"router_name": device, "command": "show system commit", "timeout": 60})
-
     async def facts(self, device: str) -> dict:
         text = await self._call("gather_device_facts", {"router_name": device, "timeout": 60})
         try:

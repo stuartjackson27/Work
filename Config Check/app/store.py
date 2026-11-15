@@ -22,15 +22,6 @@ CREATE TABLE IF NOT EXISTS findings (
 CREATE INDEX IF NOT EXISTS ix_findings_scan ON findings(scan_id);
 CREATE TABLE IF NOT EXISTS decisions (
   fingerprint TEXT PRIMARY KEY, state TEXT, note TEXT, updated TEXT);
-CREATE TABLE IF NOT EXISTS commits (
-  scan_id INTEGER, device TEXT, data TEXT, PRIMARY KEY (scan_id, device));
-CREATE TABLE IF NOT EXISTS changes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id INTEGER, device TEXT, kind TEXT,
-  base_scan_id INTEGER, base_time TEXT, added TEXT, removed TEXT, sections TEXT,
-  commits TEXT, hints TEXT, review TEXT);
-CREATE INDEX IF NOT EXISTS ix_changes_scan ON changes(scan_id);
-CREATE TABLE IF NOT EXISTS baselines (
-  device TEXT PRIMARY KEY, scan_id INTEGER, pinned TEXT, note TEXT);
 """
 
 
@@ -48,6 +39,8 @@ def db() -> sqlite3.Connection:
         c.execute("ALTER TABLE findings ADD COLUMN practice TEXT DEFAULT ''")
     if "from_scan" not in cols:
         c.execute("ALTER TABLE findings ADD COLUMN from_scan INTEGER DEFAULT 0")
+    # Config-change tracking was removed (Nov 2026): drop its tables from older databases.
+    c.executescript("DROP TABLE IF EXISTS changes; DROP TABLE IF EXISTS commits; DROP TABLE IF EXISTS baselines;")
     return c
 
 
@@ -167,36 +160,11 @@ def state(scan_id: int | None = None) -> dict:
         findings.append(f)
     devices = [dict(r) for r in c.execute("SELECT * FROM scan_devices WHERE scan_id=? ORDER BY device",
                                            (scan["id"],))]
-    changes = []
-    for r in c.execute("SELECT * FROM changes WHERE scan_id=? ORDER BY device, kind", (scan["id"],)):
-        ch = dict(r)
-        for k in ("added", "removed", "sections", "commits", "hints", "review"):
-            ch[k] = json.loads(ch[k] or "null")
-        changes.append(ch)
-    commits = {r["device"]: json.loads(r["data"]) for r in
-               c.execute("SELECT * FROM commits WHERE scan_id=?", (scan["id"],))}
-    baselines = {r["device"]: dict(r) for r in c.execute("SELECT * FROM baselines")}
     scan = {**scan, "stats": json.loads(scan["stats"] or "{}")}
-    return {"scan": scan, "devices": devices, "findings": findings, "trend": trend, "scans": scans,
-            "changes": changes, "commits": commits, "baselines": baselines}
+    return {"scan": scan, "devices": devices, "findings": findings, "trend": trend, "scans": scans}
 
 
 # ------------------------------------------------------------------ history
-
-def save_commits(scan_id: int, device: str, commits: list[dict]) -> None:
-    with db() as c:
-        c.execute("INSERT OR REPLACE INTO commits VALUES(?,?,?)", (scan_id, device, json.dumps(commits)))
-
-
-def save_change(scan_id: int, device: str, kind: str, base_scan_id: int, base_time: str, diff: dict,
-                commits: list[dict], hints: list[dict], review: dict | None) -> None:
-    with db() as c:
-        c.execute("INSERT INTO changes(scan_id,device,kind,base_scan_id,base_time,added,removed,sections,"
-                  "commits,hints,review) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                  (scan_id, device, kind, base_scan_id, base_time, json.dumps(diff["added"]),
-                   json.dumps(diff["removed"]), json.dumps(diff["sections"]), json.dumps(commits),
-                   json.dumps(hints), json.dumps(review)))
-
 
 def previous_good(device: str, before_scan: int) -> dict | None:
     """Most recent earlier scan where this device was collected."""
@@ -207,32 +175,13 @@ def previous_good(device: str, before_scan: int) -> dict | None:
     return dict(r) if r else None
 
 
-def scan_time(scan_id: int) -> str:
-    r = db().execute("SELECT started FROM scans WHERE id=?", (scan_id,)).fetchone()
-    return r[0] if r else ""
-
-
-def baseline(device: str) -> dict | None:
-    r = db().execute("SELECT * FROM baselines WHERE device=?", (device,)).fetchone()
-    return dict(r) if r else None
-
-
-def set_baseline(device: str, scan_id: int | None, note: str = "") -> None:
-    with db() as c:
-        if scan_id is None:
-            c.execute("DELETE FROM baselines WHERE device=?", (device,))
-        else:
-            c.execute("INSERT OR REPLACE INTO baselines VALUES(?,?,?,?)", (device, scan_id, now(), note))
-
-
 def prune(keep: int) -> list[int]:
-    """Delete scans beyond the newest `keep`, never deleting a pinned baseline scan."""
+    """Delete scans (and their saved configs, done by the caller) beyond the newest `keep`."""
     with db() as c:
         ids = [r[0] for r in c.execute("SELECT id FROM scans ORDER BY id DESC")]
-        pinned = {r[0] for r in c.execute("SELECT scan_id FROM baselines")}
-        old = [i for i in ids[keep:] if i not in pinned]
+        old = ids[keep:]
         for i in old:
-            for t in ("findings", "scan_devices", "changes", "commits"):
+            for t in ("findings", "scan_devices"):
                 c.execute(f"DELETE FROM {t} WHERE scan_id=?", (i,))
             c.execute("DELETE FROM scans WHERE id=?", (i,))
     return old

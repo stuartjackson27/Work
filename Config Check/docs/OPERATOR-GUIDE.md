@@ -14,7 +14,7 @@ templates, the security baseline, settings, keys, and the decisions you make on 
 | Runtime settings (LLM, scoring, retention) | `config/settings.yaml` | Next scan |
 | MCP command policy | `mcp/policy/block.cmd`, `block.cfg` | `docker compose restart junos-mcp` |
 | Switch login key, MCP token | `secrets/` (never in git) | See §7 |
-| Exceptions, baselines, scan history | Dashboard → `data/config-check.db` | Immediately. **Back up `data/`** |
+| Exceptions, scan history | Dashboard → `data/config-check.db` | Immediately. **Back up `data/`** |
 | Dashboard / backend code | `app/` | `docker compose up -d --build` |
 
 Config and knowledge are re-read at the start of every scan; there's no cache to clear. Design and
@@ -268,7 +268,7 @@ Nothing in `archive/` is read.
 | `llm.min_confidence` | 0.5 | Raise to drop more low-confidence LLM findings |
 | `llm.num_ctx` | 8192 | Model context window; raise only if the GPU has room |
 | `scoring.weights` | `[0,1,2,4,7,12]` | Penalty per open finding by severity (index = sev) |
-| `retention.scans` | 50 | Scans kept (configs + findings); pinned baselines always kept |
+| `retention.scans` | 50 | Scans kept (configs + findings) |
 
 ---
 
@@ -328,8 +328,7 @@ backend's own tool allow-list.
 | Action | What it does | Stored in |
 |---|---|---|
 | **Accept as exception** | Moves a finding to Accepted, with your note, and keeps it there on later scans while the same rule fires on the same device and path | `data/` DB, keyed on device + source + rule ID + path |
-| **Pin baseline** | Marks a device's current config as its reference for change tracking (kept even past retention) | `data/` DB |
-| Config changes tab | Commit history and diffs: every scan is a config backup | `data/configs/<scan>/` |
+| Config backups | Every scan saves each device's config (set format) | `data/configs/<scan>/` |
 
 Because exceptions are keyed on the rule ID, **renaming a template `@id` brings back every finding
 you'd accepted for it**.

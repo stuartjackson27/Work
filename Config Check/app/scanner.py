@@ -8,11 +8,10 @@ import time
 from pathlib import Path
 
 from . import store
-from .changes import commits_between, diff_configs, parse_commits, risk_hints
 from .collector import MCPCollector
 from .common import DATA, inventory, settings
 from .knowledge import Retriever, design_files
-from .llm import Ollama, assess_device, review_change
+from .llm import Ollama, assess_device
 from .rules import load_blocks, role_drift, run_rules
 
 log = logging.getLogger("config-check")
@@ -68,7 +67,6 @@ class Scanner:
             # 1. collect
             token = Path(cfg["mcp"]["token_file"]).read_text().strip()
             configs: dict[str, list[str]] = {}
-            commit_log: dict[str, list[dict]] = {}
             outdir = DATA / "configs" / str(scan_id)
             outdir.mkdir(parents=True, exist_ok=True)
             async with MCPCollector(cfg["mcp"]["url"], token).connect() as mcp:
@@ -79,12 +77,6 @@ class Scanner:
                         facts = await asyncio.wait_for(mcp.facts(d.name), 60)
                         configs[d.name] = lines
                         (outdir / f"{d.name}.set").write_text("\n".join(lines) + "\n")
-                        try:
-                            ctext = await asyncio.wait_for(mcp.commits(d.name), 60)
-                            commit_log[d.name] = parse_commits(ctext)
-                            store.save_commits(scan_id, d.name, commit_log[d.name])
-                        except Exception as e:  # noqa: BLE001
-                            log.warning("commit history for %s failed: %s", d.name, e)
                         store.save_device(scan_id, device=d.name, role=d.role, host=d.host,
                                           model=facts.get("model") or d.model, version=facts.get("version", ""),
                                           status="ok", lines=len(lines))
@@ -117,35 +109,6 @@ class Scanner:
                     rule_by_dev.setdefault(f.device, []).append(f)
             stats["rule_findings"] = len(findings)
 
-            # 2b. config history: diff against previous good scan, and against a pinned baseline
-            self._p("history", 30, "Comparing with previous snapshots")
-            pending: dict[str, list[dict]] = {}
-            now_iso = store.scan_time(scan_id)
-            for d in devices:
-                if d.name not in configs:
-                    continue
-                bases = []
-                prev = store.previous_good(d.name, scan_id)
-                if prev:
-                    bases.append(("previous", prev["id"], prev["started"]))
-                bl = store.baseline(d.name)
-                if bl and (not prev or bl["scan_id"] != prev["id"]):
-                    bases.append(("baseline", bl["scan_id"], store.scan_time(bl["scan_id"])))
-                for kind, bid, btime in bases:
-                    f = DATA / "configs" / str(bid) / f"{d.name}.set"
-                    if not f.exists():
-                        continue
-                    diff = diff_configs(f.read_text().splitlines(), configs[d.name])
-                    if not (diff["added"] or diff["removed"]):
-                        continue
-                    pending.setdefault(d.name, []).append({
-                        "kind": kind, "base": bid, "base_time": btime, "diff": diff,
-                        "commits": commits_between(commit_log.get(d.name, []), btime, now_iso),
-                        "hints": risk_hints(diff["added"], diff["removed"]), "review": None})
-            stats["changes"] = {k: [{"kind": c["kind"], "added": len(c["diff"]["added"]),
-                                     "removed": len(c["diff"]["removed"])} for c in v]
-                                for k, v in pending.items()}
-
             # 3. LLM
             if use_llm:
                 ollama = Ollama(llm_cfg["base_url"], llm_cfg.get("timeout_s", 240))
@@ -164,15 +127,6 @@ class Scanner:
                             retr = Retriever(ollama, llm_cfg.get("embed_model", "nomic-embed-text"))
                             n = await retr.build(design_files(role.get("design")),
                                                  [b for b in all_blocks if b.category != "Security"])
-                        for ch in (pending.get(d.name, []) if do_anom else []):
-                            if ch["kind"] != "previous":
-                                continue
-                            prog(f"LLM reviewing changes on {d.name}")
-                            try:
-                                ch["review"] = await review_change(ollama, retr, d, ch["diff"], ch["hints"],
-                                                                   ch["commits"], llm_cfg)
-                            except Exception as e:  # noqa: BLE001
-                                ch["review"] = {"error": str(e)[:200]}
                         if do_anom:
                             llm_f, st = await assess_device(ollama, retr, d, role.get("description", ""),
                                                             configs[d.name], rule_by_dev.get(d.name, []),
@@ -212,10 +166,6 @@ class Scanner:
                         part["from"] = sorted(set(part["from"]) | set(src_ids))
             if carried:
                 stats["carried"] = carried
-            for dev, chs in pending.items():
-                for ch in chs:
-                    store.save_change(scan_id, dev, ch["kind"], ch["base"], ch["base_time"], ch["diff"],
-                                      ch["commits"], ch["hints"], ch["review"])
             removed = store.prune(int(cfg.get("retention", {}).get("scans", 50)))
             for sid in removed:
                 shutil.rmtree(DATA / "configs" / str(sid), ignore_errors=True)
